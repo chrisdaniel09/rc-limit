@@ -1,0 +1,41 @@
+namespace RCLimit.Modules.Loans.Application.Loans;
+
+public record LoanDto(
+    Guid LoanId,
+    string? LoanNumber,
+    string CustomerName,
+    string VehicleRegNo,
+    string LenderName,
+    string ProductType,
+    decimal SanctionedAmount,
+    decimal NetDisbursedAmount,
+    decimal CustomerRate,
+    decimal TotalPayoutEarned,
+    string LoanStatus,
+    DateOnly DisbursalDate);
+
+public record LoanDetailDto(
+    Guid LoanId,
+    string? LoanNumber,
+    string? LenderAgreementNumber,
+    Guid CustomerId,
+    string CustomerName,
+    Guid VehicleId,
+    string VehicleRegNo,
+    string LenderName,
+    Guid PoolId,
+    Guid? PartnerId,
+    string ProductType,
+    decimal SanctionedAmount,
+    decimal NetDisbursedAmount,
+    decimal CustomerRate,
+    decimal BankPayoutPctAmt,
+    decimal BonusPayoutAmt,
+    decimal SharedPayoutAmt,
+    decimal TotalPayoutEarned,
+    string LoanStatus,
+    DateOnly DisbursalDate,
+    string? Remarks,
+    string? RcStage,
+    string? RcAgingStatus,
+    List<DisbursalLineItems.DisbursalLineItemDto> LineItems);

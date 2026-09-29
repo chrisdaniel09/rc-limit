@@ -1,0 +1,64 @@
+# ========================
+# .NET Backend
+# ========================
+**/bin/
+**/obj/
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+*.userprefs
+publish/
+Release/
+
+# Serilog file logs
+**/logs/*.log
+
+# User secrets / local overrides
+appsettings.*.local.json
+
+# NuGet
+*.nupkg
+**/packages/
+
+# ========================
+# React / Node Frontend
+# ========================
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.tsbuildinfo
+.vite/
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# ========================
+# IDE / Editor
+# ========================
+.vs/
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+*.njsproj
+*.ntvs*
+
+# ========================
+# OS
+# ========================
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# ========================
+# Secrets / Credentials
+# ========================
+*.env
+*.env.*
+!*.env.example

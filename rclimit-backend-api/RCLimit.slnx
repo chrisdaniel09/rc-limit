@@ -1,0 +1,44 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/RCLimit.BuildingBlocks.Contracts/RCLimit.BuildingBlocks.Contracts.csproj" />
+    <Project Path="src/BuildingBlocks/RCLimit.BuildingBlocks.Domain/RCLimit.BuildingBlocks.Domain.csproj" />
+    <Project Path="src/BuildingBlocks/RCLimit.BuildingBlocks.Infrastructure/RCLimit.BuildingBlocks.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/" />
+  <Folder Name="/src/Modules/Accounting/">
+    <Project Path="src/Modules/Accounting/RCLimit.Modules.Accounting.Application/RCLimit.Modules.Accounting.Application.csproj" />
+    <Project Path="src/Modules/Accounting/RCLimit.Modules.Accounting.Contracts/RCLimit.Modules.Accounting.Contracts.csproj" />
+    <Project Path="src/Modules/Accounting/RCLimit.Modules.Accounting.Domain/RCLimit.Modules.Accounting.Domain.csproj" />
+    <Project Path="src/Modules/Accounting/RCLimit.Modules.Accounting.Infrastructure/RCLimit.Modules.Accounting.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Identity/">
+    <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Application/RCLimit.Modules.Identity.Application.csproj" />
+    <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Contracts/RCLimit.Modules.Identity.Contracts.csproj" />
+    <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Domain/RCLimit.Modules.Identity.Domain.csproj" />
+    <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Infrastructure/RCLimit.Modules.Identity.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Loans/">
+    <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Application/RCLimit.Modules.Loans.Application.csproj" />
+    <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Contracts/RCLimit.Modules.Loans.Contracts.csproj" />
+    <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Domain/RCLimit.Modules.Loans.Domain.csproj" />
+    <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Infrastructure/RCLimit.Modules.Loans.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/Partners/">
+    <Project Path="src/Modules/Partners/RCLimit.Modules.Partners.Application/RCLimit.Modules.Partners.Application.csproj" />
+    <Project Path="src/Modules/Partners/RCLimit.Modules.Partners.Contracts/RCLimit.Modules.Partners.Contracts.csproj" />
+    <Project Path="src/Modules/Partners/RCLimit.Modules.Partners.Domain/RCLimit.Modules.Partners.Domain.csproj" />
+    <Project Path="src/Modules/Partners/RCLimit.Modules.Partners.Infrastructure/RCLimit.Modules.Partners.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/Modules/System/">
+    <Project Path="src/Modules/System/RCLimit.Modules.System.Application/RCLimit.Modules.System.Application.csproj" />
+    <Project Path="src/Modules/System/RCLimit.Modules.System.Domain/RCLimit.Modules.System.Domain.csproj" />
+    <Project Path="src/Modules/System/RCLimit.Modules.System.Infrastructure/RCLimit.Modules.System.Infrastructure.csproj" />
+  </Folder>
+  <Folder Name="/src/WebApi/">
+    <Project Path="src/WebApi/RCLimit.WebApi/RCLimit.WebApi.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/RCLimit.ArchitectureTests/RCLimit.ArchitectureTests.csproj" />
+  </Folder>
+</Solution>

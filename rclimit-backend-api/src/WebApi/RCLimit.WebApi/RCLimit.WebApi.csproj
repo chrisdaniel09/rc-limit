@@ -1,0 +1,29 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.0.9" />
+    <PackageReference Include="Swashbuckle.AspNetCore.SwaggerUI" Version="9.0.1" />
+    <!-- Serilog -->
+    <PackageReference Include="Serilog.AspNetCore" Version="9.0.0" />
+    <PackageReference Include="Serilog.Sinks.File" Version="6.0.0" />
+    <PackageReference Include="Serilog.Enrichers.Environment" Version="3.0.1" />
+    <PackageReference Include="Serilog.Enrichers.Thread" Version="4.0.0" />
+    <!-- OpenTelemetry -->
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.12.0" />
+    <PackageReference Include="OpenTelemetry.Exporter.Console" Version="1.12.0" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\Modules\Identity\RCLimit.Modules.Identity.Infrastructure\RCLimit.Modules.Identity.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Accounting\RCLimit.Modules.Accounting.Infrastructure\RCLimit.Modules.Accounting.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Loans\RCLimit.Modules.Loans.Infrastructure\RCLimit.Modules.Loans.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Partners\RCLimit.Modules.Partners.Infrastructure\RCLimit.Modules.Partners.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\System\RCLimit.Modules.System.Infrastructure\RCLimit.Modules.System.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\BuildingBlocks\RCLimit.BuildingBlocks.Infrastructure\RCLimit.BuildingBlocks.Infrastructure.csproj" />
+  </ItemGroup>
+</Project>

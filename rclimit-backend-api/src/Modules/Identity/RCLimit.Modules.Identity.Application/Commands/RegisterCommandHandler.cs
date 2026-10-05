@@ -1,5 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Dtos;
 using RCLimit.Modules.Identity.Contracts.Dtos;
@@ -12,29 +14,39 @@ public class RegisterCommandHandler : IRequestHandler<RegisterCommand, AuthRespo
     private readonly IIdentityDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenService _jwtService;
+    private readonly ITenantContext _tenantContext;
 
     public RegisterCommandHandler(
         IIdentityDbContext db,
         IPasswordHasher passwordHasher,
-        IJwtTokenService jwtService)
+        IJwtTokenService jwtService,
+        ITenantContext tenantContext)
     {
         _db = db;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
+        _tenantContext = tenantContext;
     }
 
     public async Task<AuthResponse> Handle(RegisterCommand request, CancellationToken cancellationToken)
     {
+        var tenantId = _tenantContext.TenantId;
+
+        // Tenant must be resolved from the request domain by middleware
+        if (tenantId == Guid.Empty)
+            throw new BusinessRuleException("Tenant could not be resolved from the request domain.");
+
+        // Check email uniqueness within this tenant only
         var existingUser = await _db.Users
-            .FirstOrDefaultAsync(u => u.Email == request.Email, cancellationToken);
+            .FirstOrDefaultAsync(u => u.Email == request.Email && u.TenantId == tenantId, cancellationToken);
 
         if (existingUser is not null)
-            throw new InvalidOperationException("A user with this email already exists.");
+            throw new InvalidOperationException("A user with this email already exists in this tenant.");
 
         var (hash, salt) = _passwordHasher.HashPassword(request.Password);
 
         var user = User.Create(
-            request.TenantId,
+            tenantId,
             request.Email,
             request.FullName,
             request.PhoneNumber,

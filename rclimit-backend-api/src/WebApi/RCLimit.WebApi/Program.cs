@@ -1,6 +1,7 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
@@ -59,11 +60,21 @@ try
     builder.Services.AddScoped<IWhatsAppService, NoOpWhatsAppService>();
     builder.Services.AddScoped<IVahanService, NoOpVahanService>();
 
+    // Configure tenant resolution options (domain-based multi-tenancy)
+    var tenantResolutionOptions = new TenantResolutionOptions
+    {
+        BaseDomains = builder.Configuration.GetSection("Tenancy:BaseDomains").Get<List<string>>() ?? []
+    };
+    builder.Services.AddSingleton(tenantResolutionOptions);
+
     builder.Services.AddIdentityModule(builder.Configuration);
     builder.Services.AddAccountingModule(builder.Configuration);
     builder.Services.AddLoansModule(builder.Configuration);
     builder.Services.AddPartnersModule(builder.Configuration);
     builder.Services.AddSystemModule(builder.Configuration);
+
+    // Register tenant directory for domain-based resolution (after system module for DbContext)
+    builder.Services.AddScoped<ITenantDirectory, TenantDirectory>();
 
     var jwtSecret = builder.Configuration["Jwt:Secret"]!;
     var jwtIssuer = builder.Configuration["Jwt:Issuer"]!;
@@ -89,19 +100,26 @@ try
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, HasRightPolicyProvider>();
     builder.Services.AddAuthorization();
 
+    // Static allowed origins (e.g., localhost for dev)
+    var staticAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
+        ?? new[] { "http://localhost:5173", "http://anna-finance.localhost:5173" };
+
     builder.Services.AddCors(options =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-            ?? new[] { "http://localhost:5173" };
-
         options.AddDefaultPolicy(policy =>
         {
-            policy.WithOrigins(allowedOrigins)
-                .AllowAnyHeader()
+            policy.AllowAnyHeader()
                 .AllowAnyMethod()
-                .AllowCredentials();
+                .AllowCredentials()
+                .SetIsOriginAllowedToAllowWildcardSubdomains();
         });
     });
+
+    // Register the dynamic CORS policy provider that checks tenant domains
+    builder.Services.AddSingleton<ICorsPolicyProvider>(sp =>
+        new TenantAwareCorsPolicy(
+            sp.GetRequiredService<ITenantDirectory>(),
+            staticAllowedOrigins));
 
     builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource.AddService("RCLimit.WebApi"))
@@ -127,6 +145,7 @@ try
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseSerilogRequestLogging();
     app.UseMiddleware<DiagnosticContextMiddleware>();
+    app.UseRouting(); // Must come before UseAuthentication for route values to be available
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseMiddleware<TenantMiddleware>();

@@ -27,8 +27,7 @@ public class AuthController : ControllerBase
             request.Email,
             request.Password,
             request.FullName,
-            request.PhoneNumber,
-            request.TenantId);
+            request.PhoneNumber);
 
         var result = await _sender.Send(command, ct);
         return Ok(new HateoasResponse<object>
@@ -106,6 +105,6 @@ public class AuthController : ControllerBase
     }
 }
 
-public record RegisterRequest(string Email, string Password, string FullName, string? PhoneNumber, Guid TenantId);
+public record RegisterRequest(string Email, string Password, string FullName, string? PhoneNumber);
 public record LoginRequest(string Email, string Password);
 public record RefreshRequest(string RefreshToken);

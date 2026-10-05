@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate, useParams } from 'react-router-dom';
+import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPut, apiPost } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
@@ -261,12 +261,12 @@ export default function LeadDetailPage() {
           </div>
           <div className="flex gap-2">
             {lead.convertedCustomerId && (
-              <a
-                href={`/customers/${lead.convertedCustomerId}`}
+              <Link
+                to={`/customers/${lead.convertedCustomerId}`}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 font-medium hover:bg-green-100"
               >
                 ✓ Converted to Customer
-              </a>
+              </Link>
             )}
             {!lead.convertedCustomerId && hasRight('leads.edit') && (
               <button

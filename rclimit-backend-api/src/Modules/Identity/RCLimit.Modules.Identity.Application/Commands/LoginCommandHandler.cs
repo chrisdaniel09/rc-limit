@@ -1,10 +1,11 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Dtos;
 using RCLimit.Modules.Identity.Contracts.Dtos;
 using RCLimit.Modules.Identity.Domain.Entities;
-using RCLimit.BuildingBlocks.Domain.Exceptions;
 
 namespace RCLimit.Modules.Identity.Application.Commands;
 
@@ -13,21 +14,31 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
     private readonly IIdentityDbContext _db;
     private readonly IPasswordHasher _passwordHasher;
     private readonly IJwtTokenService _jwtService;
+    private readonly ITenantContext _tenantContext;
 
     public LoginCommandHandler(
         IIdentityDbContext db,
         IPasswordHasher passwordHasher,
-        IJwtTokenService jwtService)
+        IJwtTokenService jwtService,
+        ITenantContext tenantContext)
     {
         _db = db;
         _passwordHasher = passwordHasher;
         _jwtService = jwtService;
+        _tenantContext = tenantContext;
     }
 
     public async Task<AuthResponse> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
+        var tenantId = _tenantContext.TenantId;
+
+        // Tenant must be resolved from the request domain by middleware
+        if (tenantId == Guid.Empty)
+            throw new BusinessRuleException("Tenant could not be resolved from the request domain.");
+
+        // Look up user within this tenant only
         var user = await _db.Users
-            .FirstOrDefaultAsync(u => u.Email == request.Email, cancellationToken)
+            .FirstOrDefaultAsync(u => u.Email == request.Email && u.TenantId == tenantId, cancellationToken)
             ?? throw new InvalidOperationException("Invalid email or password.");
 
         if (!user.IsActive)

@@ -1,8 +1,8 @@
 -- Seed Data for RCLimit Development Environment
 
 -- 1. Default Tenant
-INSERT INTO system.tenants (tenant_id, organization_name, slug, subscription_plan)
-VALUES ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'Anna Finance', 'anna-finance', 'ENTERPRISE');
+INSERT INTO system.tenants (tenant_id, organization_name, slug, custom_domain, subscription_plan)
+VALUES ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'Anna Finance', 'anna-finance', 'ashy-hill-006ad3900.4.azurestaticapps.net', 'ENTERPRISE');
 
 INSERT INTO system.tenant_settings (tenant_id, max_active_dealers, allow_whatsapp_intake)
 VALUES ('a1b2c3d4-e5f6-7890-abcd-ef1234567890', 50, TRUE);

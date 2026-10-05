@@ -23,8 +23,4 @@ CREATE TABLE lender_disbursed_to_options (
 CREATE UNIQUE INDEX ix_lender_disbursed_to_options_tenant_code
     ON lender_disbursed_to_options (tenant_id, code);
 
--- 3. Seed default options (run per tenant, replace <tenant_id> with actual value)
--- INSERT INTO lender_disbursed_to_options (option_id, tenant_id, code, label, sort_order)
--- VALUES
---     (gen_random_uuid(), '<tenant_id>', 'CUSTOMER', 'Customer', 1),
---     (gen_random_uuid(), '<tenant_id>', 'ANNA_FINANCE', 'AnnaFinance', 2);
+

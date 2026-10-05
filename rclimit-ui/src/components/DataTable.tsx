@@ -14,7 +14,7 @@ interface DataTableProps<T> {
   searchPlaceholder?: string;
 }
 
-export default function DataTable<T extends Record<string, unknown>>({
+export default function DataTable<T>({
   columns,
   data,
   loading,

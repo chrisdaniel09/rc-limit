@@ -2,8 +2,7 @@ import { useState } from 'react';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPut } from '../../api/client';
 import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import DataTable from '../../components/DataTable';
+import DataTable, { type Column } from '../../components/DataTable';
 
 interface Role {
   roleId: string;
@@ -53,17 +52,17 @@ export default function UsersPage() {
     }
   };
 
-  const columns = [
+  const columns: Column<User>[] = [
     { key: 'email', header: 'Email' },
     { key: 'fullName', header: 'Full Name' },
     {
       key: 'roles',
       header: 'Roles',
-      render: (roles: Role[]) => (
+      render: (user: User) => (
         <div className="text-sm">
-          {roles && roles.length > 0 ? (
+          {user.roles && user.roles.length > 0 ? (
             <div className="flex flex-wrap gap-1">
-              {roles.map(r => (
+              {user.roles.map(r => (
                 <span key={r.roleId} className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-xs">
                   {r.name}
                 </span>

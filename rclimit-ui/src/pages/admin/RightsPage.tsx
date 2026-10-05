@@ -4,7 +4,7 @@ import { apiPost, apiPut } from '../../api/client';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
-import DataTable from '../../components/DataTable';
+import DataTable, { type Column } from '../../components/DataTable';
 
 interface Right {
   rightId: string;
@@ -67,11 +67,11 @@ export default function RightsPage() {
     }
   };
 
-  const columns = [
+  const columns: Column<Right>[] = [
     { key: 'module', header: 'Module' },
     { key: 'code', header: 'Code' },
     { key: 'name', header: 'Name' },
-    { key: 'isActive', header: 'Status', render: (val: boolean) => <Badge text={val ? 'Active' : 'Inactive'} variant={val ? 'success' : 'neutral'} /> }
+    { key: 'isActive', header: 'Status', render: (item: Right) => <Badge text={item.isActive ? 'Active' : 'Inactive'} variant={item.isActive ? 'success' : 'neutral'} /> }
   ];
 
   return (

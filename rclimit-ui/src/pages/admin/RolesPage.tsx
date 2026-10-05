@@ -4,7 +4,7 @@ import { apiPost, apiPut } from '../../api/client';
 import Badge from '../../components/Badge';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
-import DataTable from '../../components/DataTable';
+import DataTable, { type Column } from '../../components/DataTable';
 
 interface Right {
   rightId: string;
@@ -70,7 +70,7 @@ export default function RolesPage() {
         });
         roleId = editing.roleId;
       } else {
-        const created = await apiPost('/api/v1/roles', {
+        const created = await apiPost<{ roleId: string }>('/api/v1/roles', {
           code: form.code,
           name: form.name,
           description: form.description
@@ -98,11 +98,11 @@ export default function RolesPage() {
     return acc;
   }, {} as Record<string, Right[]>) : {};
 
-  const columns = [
+  const columns: Column<Role>[] = [
     { key: 'code', header: 'Code' },
     { key: 'name', header: 'Name' },
-    { key: 'isSystem', header: 'System', render: (val: boolean) => val ? <Badge text="System" variant="info" /> : '-' },
-    { key: 'isActive', header: 'Status', render: (val: boolean) => <Badge text={val ? 'Active' : 'Inactive'} variant={val ? 'success' : 'neutral'} /> }
+    { key: 'isSystem', header: 'System', render: (item: Role) => item.isSystem ? <Badge text="System" variant="info" /> : '-' },
+    { key: 'isActive', header: 'Status', render: (item: Role) => <Badge text={item.isActive ? 'Active' : 'Inactive'} variant={item.isActive ? 'success' : 'neutral'} /> }
   ];
 
   return (

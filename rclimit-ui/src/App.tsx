@@ -11,6 +11,7 @@ import LoansPage from './pages/loans/LoansPage';
 import LoanDetailPage from './pages/loans/LoanDetailPage';
 import PartnersPage from './pages/partners/PartnersPage';
 import LeadsPage from './pages/leads/LeadsPage';
+import LeadDetailPage from './pages/leads/LeadDetailPage';
 import ChartOfAccountsPage from './pages/accounting/ChartOfAccountsPage';
 import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
 import BalanceSheetPage from './pages/accounting/BalanceSheetPage';
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="loans/:id" element={<LoanDetailPage />} />
         <Route path="partners" element={<PartnersPage />} />
         <Route path="leads" element={<LeadsPage />} />
+        <Route path="leads/:id" element={<LeadDetailPage />} />
         <Route path="accounting/accounts" element={<ChartOfAccountsPage />} />
         <Route path="accounting/journal-entries" element={<JournalEntriesPage />} />
         <Route path="accounting/balance-sheet" element={<BalanceSheetPage />} />

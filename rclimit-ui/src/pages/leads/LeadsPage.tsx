@@ -1,12 +1,11 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPost } from '../../api/client';
-import { useAuth } from '../../contexts/AuthContext';
 import DataTable, { type Column } from '../../components/DataTable';
 import Badge, { statusVariant } from '../../components/Badge';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
-import LeadDetailModal from './LeadDetailModal';
 
 interface Lead {
   leadId: string;
@@ -52,12 +51,10 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function LeadsPage() {
-  const { hasRight } = useAuth();
+  const navigate = useNavigate();
   const { data, loading, refetch } = useFetch<Lead[]>('/api/v1/leads');
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const [showModal, setShowModal] = useState(false);
-  const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [form, setForm] = useState({
     leadSource: 'WALK_IN', referredByUserId: '',
     applicantName: '', whatsappPhoneNumber: '', contactPhone: '',
@@ -123,10 +120,7 @@ export default function LeadsPage() {
         data={data ?? []}
         loading={loading}
         searchPlaceholder="Search leads..."
-        onRowClick={hasRight('leads.edit') ? (lead) => {
-          setSelectedLead(lead);
-          setShowDetailModal(true);
-        } : undefined}
+        onRowClick={(lead) => navigate(`/leads/${lead.leadId}`)}
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lead">
@@ -150,22 +144,6 @@ export default function LeadsPage() {
         </form>
       </Modal>
 
-      {selectedLead && (
-        <LeadDetailModal
-          isOpen={showDetailModal}
-          onClose={() => {
-            setShowDetailModal(false);
-            setSelectedLead(null);
-          }}
-          lead={selectedLead}
-          users={users ?? []}
-          onLeadUpdated={() => {
-            refetch();
-            setShowDetailModal(false);
-            setSelectedLead(null);
-          }}
-        />
-      )}
     </div>
   );
 }

@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Contracts.Dtos;
+using RCLimit.Modules.Identity.Domain.Entities;
 
 namespace RCLimit.Modules.Identity.Application.Roles;
 

@@ -18,7 +18,7 @@ public class JwtTokenService : IJwtTokenService
         _configuration = configuration;
     }
 
-    public string GenerateAccessToken(User user, List<string> roleNames = null, List<string> rightCodes = null)
+    public string GenerateAccessToken(User user, List<string>? roleNames = null, List<string>? rightCodes = null)
     {
         var key = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!));

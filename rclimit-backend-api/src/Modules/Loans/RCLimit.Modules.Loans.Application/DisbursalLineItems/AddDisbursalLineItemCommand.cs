@@ -31,7 +31,13 @@ public class AddDisbursalLineItemCommandHandler(
         var loan = await db.LoanTransactions
             .FirstAsync(l => l.LoanId == request.LoanId, cancellationToken);
 
-        var previousBalance = lastItem?.RunningBalanceAmt ?? loan.SanctionedAmount;
+        var lenderOption = await db.LenderDisbursedToOptions
+            .FirstOrDefaultAsync(o => o.Code == loan.LenderDisbursedTo && o.IsActive, cancellationToken);
+
+        if (lenderOption == null || !lenderOption.AllowsDisbursalLineItems)
+            throw new InvalidOperationException($"Disbursal line items cannot be added for '{loan.LenderDisbursedTo}'.");
+
+        var previousBalance = lastItem?.RunningBalanceAmt ?? loan.LenderDisbursedAmount;
         var runningBalance = previousBalance - request.DebitAmount;
 
         var item = new DisbursalLineItem
@@ -49,7 +55,7 @@ public class AddDisbursalLineItemCommandHandler(
 
         db.DisbursalLineItems.Add(item);
 
-        loan.NetDisbursedAmount = loan.SanctionedAmount - runningBalance;
+        loan.NetDisbursedAmount = loan.LenderDisbursedAmount - runningBalance;
         loan.UpdatedAt = DateTime.UtcNow;
 
         await db.SaveChangesAsync(cancellationToken);

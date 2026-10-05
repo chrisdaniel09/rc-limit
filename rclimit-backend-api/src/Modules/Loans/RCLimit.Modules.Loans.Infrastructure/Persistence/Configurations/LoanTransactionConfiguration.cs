@@ -21,6 +21,8 @@ public class LoanTransactionConfiguration : IEntityTypeConfiguration<LoanTransac
         builder.Property(e => e.PartnerId).HasColumnName("partner_id");
         builder.Property(e => e.ProductType).HasColumnName("product_type").HasMaxLength(30);
         builder.Property(e => e.SanctionedAmount).HasColumnName("sanctioned_amount");
+        builder.Property(e => e.LenderDisbursedAmount).HasColumnName("lender_disbursed_amount");
+        builder.Property(e => e.LenderDisbursedTo).HasColumnName("lender_disbursed_to").HasMaxLength(30);
         builder.Property(e => e.NetDisbursedAmount).HasColumnName("net_disbursed_amount");
         builder.Property(e => e.CustomerRate).HasColumnName("customer_rate");
         builder.Property(e => e.BankPayoutPctAmt).HasColumnName("bank_payout_pct_amt");

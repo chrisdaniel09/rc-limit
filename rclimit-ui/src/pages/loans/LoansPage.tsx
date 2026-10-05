@@ -39,10 +39,12 @@ export default function LoansPage() {
   const { data: partners } = useFetch<{ partnerId: string; legalName: string }[]>('/api/v1/partners');
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
+  const { data: lenderDisbursedToOptions } = useFetch<{ optionId: string; code: string; label: string; sortOrder: number; isActive: boolean }[]>('/api/v1/lender-disbursed-to-options');
   const [form, setForm] = useState({
     customerId: '', vehicleId: '', poolId: '', partnerId: '',
     productType: 'USED_CV', lenderAgreementNumber: '',
-    sanctionedAmount: '', customerRate: '',
+    sanctionedAmount: '', lenderDisbursedAmount: '', lenderDisbursedTo: '',
+    customerRate: '',
     bankPayoutPctAmt: '0', bonusPayoutAmt: '0', sharedPayoutAmt: '0', remarks: '',
   });
   const [submitting, setSubmitting] = useState(false);
@@ -73,6 +75,8 @@ export default function LoansPage() {
         lenderAgreementNumber: form.lenderAgreementNumber || null,
         productType: form.productType,
         sanctionedAmount: parseFloat(form.sanctionedAmount),
+        lenderDisbursedAmount: parseFloat(form.lenderDisbursedAmount),
+        lenderDisbursedTo: form.lenderDisbursedTo,
         customerRate: parseFloat(form.customerRate),
         bankPayoutPctAmt: parseFloat(form.bankPayoutPctAmt),
         bonusPayoutAmt: parseFloat(form.bonusPayoutAmt),
@@ -114,6 +118,10 @@ export default function LoansPage() {
           <FormField label="Lender Agreement No." value={form.lenderAgreementNumber} onChange={(v) => setForm({ ...form, lenderAgreementNumber: v })} />
           <FormField label="Partner (optional)" value={form.partnerId} onChange={(v) => setForm({ ...form, partnerId: v })} options={toOptions(partners?.map((p) => ({ value: p.partnerId, label: p.legalName })) ?? null)} />
           <FormField label="Sanctioned Amount (₹)" type="number" value={form.sanctionedAmount} onChange={(v) => setForm({ ...form, sanctionedAmount: v })} required />
+          <FormField label="Lender Disbursed Amount (₹)" type="number" value={form.lenderDisbursedAmount} onChange={(v) => setForm({ ...form, lenderDisbursedAmount: v })} required />
+          <FormField label="Lender Disbursed To" value={form.lenderDisbursedTo} onChange={(v) => setForm({ ...form, lenderDisbursedTo: v })} required options={
+            (lenderDisbursedToOptions ?? []).filter(o => o.isActive).map(o => ({ value: o.code, label: o.label }))
+          } />
           <FormField label="Customer Rate (%)" type="number" value={form.customerRate} onChange={(v) => setForm({ ...form, customerRate: v })} required />
           <div className="grid grid-cols-3 gap-3">
             <FormField label="Payout" type="number" value={form.bankPayoutPctAmt} onChange={(v) => setForm({ ...form, bankPayoutPctAmt: v })} />

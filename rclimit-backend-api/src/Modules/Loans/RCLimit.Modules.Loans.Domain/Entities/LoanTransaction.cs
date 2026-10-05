@@ -13,6 +13,8 @@ public class LoanTransaction
     public Guid? PartnerId { get; set; }
     public string ProductType { get; set; } = "USED_CV";
     public decimal SanctionedAmount { get; set; }
+    public decimal LenderDisbursedAmount { get; set; }
+    public string LenderDisbursedTo { get; set; } = "CUSTOMER";
     public decimal NetDisbursedAmount { get; set; }
     public decimal CustomerRate { get; set; }
     public decimal BankPayoutPctAmt { get; set; }

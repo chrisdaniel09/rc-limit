@@ -27,6 +27,8 @@ public record LoanDetailDto(
     Guid? PartnerId,
     string ProductType,
     decimal SanctionedAmount,
+    decimal LenderDisbursedAmount,
+    string LenderDisbursedTo,
     decimal NetDisbursedAmount,
     decimal CustomerRate,
     decimal BankPayoutPctAmt,
@@ -38,4 +40,5 @@ public record LoanDetailDto(
     string? Remarks,
     string? RcStage,
     string? RcAgingStatus,
+    bool IsDisbursalLineItemsEnabled,
     List<DisbursalLineItems.DisbursalLineItemDto> LineItems);

@@ -28,6 +28,8 @@ interface LoanDetail {
   lenderName: string;
   productType: string;
   sanctionedAmount: number;
+  lenderDisbursedAmount: number;
+  lenderDisbursedTo: string;
   netDisbursedAmount: number;
   customerRate: number;
   bankPayoutPctAmt: number;
@@ -39,6 +41,7 @@ interface LoanDetail {
   remarks: string;
   rcStage: string;
   rcAgingStatus: string;
+  isDisbursalLineItemsEnabled: boolean;
   lineItems: LineItem[];
 }
 
@@ -99,6 +102,8 @@ export default function LoanDetailPage() {
 
   const hasLink = (rel: string) => links.some((l) => l.rel === rel);
 
+  const isDisbursalEnabled = loan?.isDisbursalLineItemsEnabled ?? false;
+
   if (loading || !loan) {
     return <div className="space-y-4">{[...Array(3)].map((_, i) => <div key={i} className="h-32 bg-white rounded-lg animate-pulse border border-gray-200" />)}</div>;
   }
@@ -125,6 +130,8 @@ export default function LoanDetailPage() {
           <div><span className="text-gray-500">Agreement #</span><p className="font-medium text-gray-900">{loan.lenderAgreementNumber || '-'}</p></div>
           <div><span className="text-gray-500">Product</span><p className="font-medium text-gray-900">{loan.productType}</p></div>
           <div><span className="text-gray-500">Sanctioned</span><p className="font-medium text-green-700">{formatCurrency(loan.sanctionedAmount)}</p></div>
+          <div><span className="text-gray-500">Lender Disbursed Amt</span><p className="font-medium text-green-700">{formatCurrency(loan.lenderDisbursedAmount)}</p></div>
+          <div><span className="text-gray-500">Lender Disbursed To</span><p className="font-medium text-gray-900">{loan.lenderDisbursedTo?.replace(/_/g, ' ') || '-'}</p></div>
           <div><span className="text-gray-500">Net Disbursed</span><p className="font-medium text-blue-700">{formatCurrency(loan.netDisbursedAmount)}</p></div>
           <div><span className="text-gray-500">Disbursal Date</span><p className="font-medium text-gray-900">{formatDate(loan.disbursalDate)}</p></div>
           <div><span className="text-gray-500">Customer Rate</span><p className="font-medium text-gray-900">{loan.customerRate}%</p></div>
@@ -164,9 +171,13 @@ export default function LoanDetailPage() {
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-md font-semibold text-gray-900">Disbursal Line Items</h3>
-          <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-            Add Line Item
-          </button>
+          {isDisbursalEnabled ? (
+            <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
+              Add Line Item
+            </button>
+          ) : (
+            <span className="text-xs text-gray-400">Disbursal line items not enabled for this lender option</span>
+          )}
         </div>
         <div className="overflow-x-auto">
           <table className="min-w-full divide-y divide-gray-200">

@@ -32,6 +32,11 @@ public class GetLoanDetailQueryHandler : IRequestHandler<GetLoanDetailQuery, Loa
 
         if (loan is null) return null;
 
+        var lenderOption = await _db.LenderDisbursedToOptions
+            .FirstOrDefaultAsync(o => o.Code == loan.LenderDisbursedTo && o.IsActive, cancellationToken);
+
+        var isDisbursalEnabled = lenderOption?.AllowsDisbursalLineItems ?? false;
+
         return new LoanDetailDto(
             loan.LoanId,
             loan.LoanNumber,
@@ -45,6 +50,8 @@ public class GetLoanDetailQueryHandler : IRequestHandler<GetLoanDetailQuery, Loa
             loan.PartnerId,
             loan.ProductType,
             loan.SanctionedAmount,
+            loan.LenderDisbursedAmount,
+            loan.LenderDisbursedTo,
             loan.NetDisbursedAmount,
             loan.CustomerRate,
             loan.BankPayoutPctAmt,
@@ -56,6 +63,7 @@ public class GetLoanDetailQueryHandler : IRequestHandler<GetLoanDetailQuery, Loa
             loan.Remarks,
             loan.RcTracker?.CurrentStage,
             loan.RcTracker?.AgingStatus,
+            isDisbursalEnabled,
             loan.DisbursalLineItems
                 .OrderBy(li => li.EntryDate)
                 .Select(li => new DisbursalLineItemDto(

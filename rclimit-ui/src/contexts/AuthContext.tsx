@@ -1,10 +1,18 @@
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
 
+interface Role {
+  roleId: string;
+  code: string;
+  name: string;
+}
+
 interface User {
   userId: string;
   email: string;
   fullName: string;
   tenantId: string;
+  roles?: Role[];
+  rightCodes?: string[];
 }
 
 interface AuthState {
@@ -22,6 +30,7 @@ interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName: string, phoneNumber: string) => Promise<void>;
   logout: () => Promise<void>;
+  hasRight: (rightCode: string) => boolean;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -116,8 +125,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'LOGOUT' });
   };
 
+  const hasRight = (rightCode: string): boolean => {
+    if (!state.user) return false;
+    if (state.user.roles?.some(r => r.name === 'SuperAdmin')) return true;
+    return state.user.rightCodes?.includes(rightCode) ?? false;
+  };
+
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout }}>
+    <AuthContext.Provider value={{ ...state, login, register, logout, hasRight }}>
       {children}
     </AuthContext.Provider>
   );

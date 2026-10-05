@@ -18,13 +18,13 @@ public class JwtTokenService : IJwtTokenService
         _configuration = configuration;
     }
 
-    public string GenerateAccessToken(User user)
+    public string GenerateAccessToken(User user, List<string> roleNames = null, List<string> rightCodes = null)
     {
         var key = new SymmetricSecurityKey(
             Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claims = new[]
+        var claimsList = new List<Claim>
         {
             new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
             new Claim(JwtRegisteredClaimNames.Email, user.Email ?? ""),
@@ -33,10 +33,26 @@ public class JwtTokenService : IJwtTokenService
             new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
         };
 
+        if (roleNames != null)
+        {
+            foreach (var roleName in roleNames)
+            {
+                claimsList.Add(new Claim(ClaimTypes.Role, roleName));
+            }
+        }
+
+        if (rightCodes != null)
+        {
+            foreach (var rightCode in rightCodes)
+            {
+                claimsList.Add(new Claim("right", rightCode));
+            }
+        }
+
         var token = new JwtSecurityToken(
             issuer: _configuration["Jwt:Issuer"],
             audience: _configuration["Jwt:Audience"],
-            claims: claims,
+            claims: claimsList,
             expires: DateTime.UtcNow.AddMinutes(15),
             signingCredentials: credentials);
 

@@ -9,6 +9,10 @@ public class IdentityDbContext : DbContext, IIdentityDbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<UserIdentity> UserIdentities => Set<UserIdentity>();
     public DbSet<RefreshToken> RefreshTokens => Set<RefreshToken>();
+    public DbSet<Right> Rights => Set<Right>();
+    public DbSet<Role> Roles => Set<Role>();
+    public DbSet<RoleRight> RoleRights => Set<RoleRight>();
+    public DbSet<UserRole> UserRoles => Set<UserRole>();
 
     public IdentityDbContext(DbContextOptions<IdentityDbContext> options) : base(options) { }
 

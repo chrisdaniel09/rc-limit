@@ -1,11 +1,13 @@
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Contracts.Integrations;
 using RCLimit.BuildingBlocks.Infrastructure;
+using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.BuildingBlocks.Infrastructure.Middleware;
 using RCLimit.BuildingBlocks.Infrastructure.Stubs;
 using RCLimit.Modules.Accounting.Infrastructure;
@@ -83,6 +85,8 @@ try
             };
         });
 
+    builder.Services.AddSingleton<IAuthorizationHandler, HasRightHandler>();
+    builder.Services.AddSingleton<IAuthorizationPolicyProvider, HasRightPolicyProvider>();
     builder.Services.AddAuthorization();
 
     builder.Services.AddCors(options =>

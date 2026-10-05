@@ -4,10 +4,16 @@ on:
   push:
     branches:
       - main
+    paths:
+      - 'rclimit-ui/**'
+      - '.github/workflows/azure-static-web-apps-ashy-hill-006ad3900.yml'
   pull_request:
     types: [opened, synchronize, reopened, closed]
     branches:
       - main
+    paths:
+      - 'rclimit-ui/**'
+      - '.github/workflows/azure-static-web-apps-ashy-hill-006ad3900.yml'
 
 jobs:
   build_and_deploy_job:

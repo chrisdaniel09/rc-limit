@@ -18,13 +18,19 @@ const accountingItems = [
   { to: '/accounting/particular-types', label: 'Line Item Types', icon: '☰' },
 ];
 
+const adminItems = [
+  { to: '/admin/roles', label: 'Roles', icon: '👑', right: 'roles.manage' },
+  { to: '/admin/rights', label: 'Rights', icon: '🔐', right: 'rights.manage' },
+  { to: '/admin/users', label: 'Users', icon: '👤', right: 'users.manage' },
+];
+
 interface SidebarProps {
   open: boolean;
   onClose: () => void;
 }
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
-  const { logout } = useAuth();
+  const { logout, hasRight } = useAuth();
 
   return (
     <>
@@ -81,6 +87,33 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
               {item.label}
             </NavLink>
           ))}
+
+          {adminItems.some(item => hasRight(item.right)) && (
+            <>
+              <div className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Administration</span>
+              </div>
+              {adminItems.map((item) => (
+                hasRight(item.right) && (
+                  <NavLink
+                    key={item.to}
+                    to={item.to}
+                    onClick={onClose}
+                    className={({ isActive }) =>
+                      `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+                        isActive
+                          ? 'bg-indigo-600 text-white'
+                          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+                      }`
+                    }
+                  >
+                    <span className="text-base">{item.icon}</span>
+                    {item.label}
+                  </NavLink>
+                )
+              ))}
+            </>
+          )}
         </nav>
 
         <div className="px-3 py-4 border-t border-gray-700">

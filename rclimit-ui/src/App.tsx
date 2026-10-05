@@ -16,10 +16,20 @@ import JournalEntriesPage from './pages/accounting/JournalEntriesPage';
 import BalanceSheetPage from './pages/accounting/BalanceSheetPage';
 import PostingRulesPage from './pages/accounting/PostingRulesPage';
 import ParticularTypesPage from './pages/accounting/ParticularTypesPage';
+import RolesPage from './pages/admin/RolesPage';
+import RightsPage from './pages/admin/RightsPage';
+import UsersPage from './pages/admin/UsersPage';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuth();
   if (!isAuthenticated) return <Navigate to="/login" replace />;
+  return <>{children}</>;
+}
+
+function RightProtectedRoute({ children, right }: { children: React.ReactNode; right: string }) {
+  const { isAuthenticated, hasRight } = useAuth();
+  if (!isAuthenticated) return <Navigate to="/login" replace />;
+  if (!hasRight(right)) return <Navigate to="/" replace />;
   return <>{children}</>;
 }
 
@@ -49,6 +59,9 @@ export default function App() {
         <Route path="accounting/balance-sheet" element={<BalanceSheetPage />} />
         <Route path="accounting/posting-rules" element={<PostingRulesPage />} />
         <Route path="accounting/particular-types" element={<ParticularTypesPage />} />
+        <Route path="admin/roles" element={<RightProtectedRoute right="roles.manage"><RolesPage /></RightProtectedRoute>} />
+        <Route path="admin/rights" element={<RightProtectedRoute right="rights.manage"><RightsPage /></RightProtectedRoute>} />
+        <Route path="admin/users" element={<RightProtectedRoute right="users.manage"><UsersPage /></RightProtectedRoute>} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

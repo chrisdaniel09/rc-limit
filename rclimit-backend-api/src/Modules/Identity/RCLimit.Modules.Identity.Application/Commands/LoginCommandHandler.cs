@@ -4,6 +4,7 @@ using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Dtos;
 using RCLimit.Modules.Identity.Contracts.Dtos;
 using RCLimit.Modules.Identity.Domain.Entities;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 
 namespace RCLimit.Modules.Identity.Application.Commands;
 
@@ -40,7 +41,29 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
 
         user.RecordLogin();
 
-        var accessToken = _jwtService.GenerateAccessToken(user);
+        var userRoleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == user.UserId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(cancellationToken);
+
+        var roles = await _db.Roles
+            .Where(r => userRoleIds.Contains(r.RoleId))
+            .ToListAsync(cancellationToken);
+
+        var roleNames = roles.Select(r => r.Name).ToList();
+
+        var roleRights = await _db.RoleRights
+            .Where(rr => userRoleIds.Contains(rr.RoleId))
+            .ToListAsync(cancellationToken);
+
+        var rightIds = roleRights.Select(rr => rr.RightId).Distinct().ToList();
+        var rights = await _db.Rights
+            .Where(r => rightIds.Contains(r.RightId))
+            .ToListAsync(cancellationToken);
+
+        var rightCodes = rights.Select(r => r.Code).ToList();
+
+        var accessToken = _jwtService.GenerateAccessToken(user, roleNames, rightCodes);
         var refreshTokenValue = _jwtService.GenerateRefreshToken();
         var expiresAt = DateTime.UtcNow.AddDays(7);
 
@@ -52,11 +75,21 @@ public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
         _db.RefreshTokens.Add(refreshToken);
         await _db.SaveChangesAsync(cancellationToken);
 
+        var userRoleDtos = roles.Select(r => new RoleDto(
+            r.RoleId,
+            r.Code,
+            r.Name,
+            r.Description,
+            r.IsSystem,
+            r.IsActive,
+            new List<RightDto>()
+        )).ToList();
+
         return new AuthResponse(
             accessToken,
             refreshTokenValue,
             DateTime.UtcNow.AddMinutes(15),
-            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName));
+            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName, userRoleDtos, rightCodes));
     }
 
     private static string ComputeTokenHash(string token)

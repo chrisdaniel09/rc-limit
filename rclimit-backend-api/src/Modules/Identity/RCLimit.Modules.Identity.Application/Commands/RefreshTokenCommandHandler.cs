@@ -52,7 +52,30 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
         existingToken.Revoke();
 
         var user = existingToken.User;
-        var newAccessToken = _jwtService.GenerateAccessToken(user);
+
+        var userRoleIds = await _db.UserRoles
+            .Where(ur => ur.UserId == user.UserId)
+            .Select(ur => ur.RoleId)
+            .ToListAsync(cancellationToken);
+
+        var roles = await _db.Roles
+            .Where(r => userRoleIds.Contains(r.RoleId))
+            .ToListAsync(cancellationToken);
+
+        var roleNames = roles.Select(r => r.Name).ToList();
+
+        var roleRights = await _db.RoleRights
+            .Where(rr => userRoleIds.Contains(rr.RoleId))
+            .ToListAsync(cancellationToken);
+
+        var rightIds = roleRights.Select(rr => rr.RightId).Distinct().ToList();
+        var rights = await _db.Rights
+            .Where(r => rightIds.Contains(r.RightId))
+            .ToListAsync(cancellationToken);
+
+        var rightCodes = rights.Select(r => r.Code).ToList();
+
+        var newAccessToken = _jwtService.GenerateAccessToken(user, roleNames, rightCodes);
         var newRefreshTokenValue = _jwtService.GenerateRefreshToken();
         var expiresAt = DateTime.UtcNow.AddDays(7);
 
@@ -64,11 +87,21 @@ public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, A
         _db.RefreshTokens.Add(newRefreshToken);
         await _db.SaveChangesAsync(cancellationToken);
 
+        var userRoleDtos = roles.Select(r => new RoleDto(
+            r.RoleId,
+            r.Code,
+            r.Name,
+            r.Description,
+            r.IsSystem,
+            r.IsActive,
+            new List<RightDto>()
+        )).ToList();
+
         return new AuthResponse(
             newAccessToken,
             newRefreshTokenValue,
             DateTime.UtcNow.AddMinutes(15),
-            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName));
+            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName, userRoleDtos, rightCodes));
     }
 
     private static string ComputeTokenHash(string token)

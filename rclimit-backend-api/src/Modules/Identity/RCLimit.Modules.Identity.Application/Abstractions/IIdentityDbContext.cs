@@ -8,5 +8,9 @@ public interface IIdentityDbContext
     DbSet<User> Users { get; }
     DbSet<UserIdentity> UserIdentities { get; }
     DbSet<RefreshToken> RefreshTokens { get; }
+    DbSet<Right> Rights { get; }
+    DbSet<Role> Roles { get; }
+    DbSet<RoleRight> RoleRights { get; }
+    DbSet<UserRole> UserRoles { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

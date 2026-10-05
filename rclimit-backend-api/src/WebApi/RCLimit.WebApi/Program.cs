@@ -73,8 +73,8 @@ try
     builder.Services.AddPartnersModule(builder.Configuration);
     builder.Services.AddSystemModule(builder.Configuration);
 
-    // Register tenant directory for domain-based resolution (after system module for DbContext)
-    builder.Services.AddScoped<ITenantDirectory, TenantDirectory>();
+    // Register tenant directory for domain-based resolution as singleton (safe for caching, used in singleton CORS policy)
+    builder.Services.AddSingleton<ITenantDirectory, TenantDirectory>();
 
     var jwtSecret = builder.Configuration["Jwt:Secret"]!;
     var jwtIssuer = builder.Configuration["Jwt:Issuer"]!;

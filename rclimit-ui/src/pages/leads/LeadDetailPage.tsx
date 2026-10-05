@@ -147,10 +147,6 @@ export default function LeadDetailPage() {
   }
 
   const userOptions = users?.map(u => ({ value: u.userId, label: u.fullName || u.userId })) ?? [];
-  const isCibilPassed = cibilStatus === 'PASSED';
-  const isRcPassed = rcStatus === 'PASSED';
-  const isQualified = leadStatus === 'QUALIFIED';
-  const canConvert = isCibilPassed && isRcPassed && isQualified && !lead.convertedCustomerId;
 
   const handleSaveChanges = async () => {
     if (!hasRight('leads.edit')) return;
@@ -261,14 +257,24 @@ export default function LeadDetailPage() {
               <h1 className="text-3xl font-bold text-gray-900">{lead.applicantName || 'Unknown Applicant'}</h1>
               <p className="text-gray-600 mt-1">Lead ID: {lead.leadId}</p>
             </div>
-            {lead.convertedCustomerId && (
-              <a
-                href={`/customers/${lead.convertedCustomerId}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 font-medium hover:bg-green-100"
-              >
-                ✓ Converted to Customer
-              </a>
-            )}
+            <div className="flex gap-2">
+              {lead.convertedCustomerId && (
+                <a
+                  href={`/customers/${lead.convertedCustomerId}`}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 font-medium hover:bg-green-100"
+                >
+                  ✓ Converted to Customer
+                </a>
+              )}
+              {!lead.convertedCustomerId && hasRight('leads.edit') && (
+                <button
+                  onClick={() => setShowConvertConfirm(true)}
+                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 transition-colors"
+                >
+                  Convert to Customer →
+                </button>
+              )}
+            </div>
           </div>
 
           {/* Qualification Pipeline */}
@@ -503,47 +509,6 @@ export default function LeadDetailPage() {
               </div>
             </div>
 
-            {/* Conversion Section */}
-            {!lead.convertedCustomerId && (
-              <div className="bg-white rounded-lg border border-gray-200 overflow-hidden shadow-sm">
-                <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
-                  <h3 className="text-sm font-semibold text-gray-900">Convert to Customer</h3>
-                </div>
-                <div className="p-6">
-                  {canConvert ? (
-                    <div className="space-y-4">
-                      <p className="text-sm text-green-700 bg-green-50 border border-green-200 rounded-lg px-3 py-2">
-                        ✓ This lead is ready for conversion. All checks passed and status is qualified.
-                      </p>
-                      <button
-                        onClick={() => setShowConvertConfirm(true)}
-                        disabled={loading}
-                        className="w-full px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
-                      >
-                        Proceed with Conversion →
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="space-y-3">
-                      <p className="text-sm text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">
-                        ⚠️ This lead is not ready for conversion yet.
-                      </p>
-                      <ul className="space-y-2 text-sm text-gray-600">
-                        <li className={`flex items-center gap-2 ${isCibilPassed ? 'text-green-600' : 'text-red-600'}`}>
-                          {isCibilPassed ? '✓' : '✗'} CIBIL Check: {cibilStatus}
-                        </li>
-                        <li className={`flex items-center gap-2 ${isRcPassed ? 'text-green-600' : 'text-amber-600'}`}>
-                          {isRcPassed ? '✓' : '✗'} RC Check: {rcStatus}
-                        </li>
-                        <li className={`flex items-center gap-2 ${isQualified ? 'text-green-600' : 'text-gray-600'}`}>
-                          {isQualified ? '✓' : '○'} Lead Status: {leadStatus}
-                        </li>
-                      </ul>
-                    </div>
-                  )}
-                </div>
-              </div>
-            )}
           </div>
         </div>
       </div>
@@ -564,15 +529,20 @@ export default function LeadDetailPage() {
         </div>
       )}
 
-      {/* Conversion Confirmation Modal */}
+      {/* Convert to Customer Modal */}
       {showConvertConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
-            <div className="border-b border-gray-200 px-6 py-4 bg-gray-50">
+            <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex justify-between items-center">
               <h2 className="text-lg font-semibold text-gray-900">Convert to Customer</h2>
+              <button
+                onClick={() => setShowConvertConfirm(false)}
+                className="text-gray-400 hover:text-gray-600 text-2xl font-light"
+              >
+                ×
+              </button>
             </div>
             <div className="p-6 space-y-4">
-              <p className="text-sm text-gray-600">Fill in the details to complete the conversion.</p>
               <FormField
                 label="Customer Type"
                 value={customerType}
@@ -601,7 +571,7 @@ export default function LeadDetailPage() {
                   disabled={loading || !assignedCeiling}
                   className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
                 >
-                  {loading ? 'Converting...' : 'Confirm Conversion'}
+                  {loading ? 'Converting...' : 'Convert'}
                 </button>
               </div>
             </div>

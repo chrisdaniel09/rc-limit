@@ -29,3 +29,10 @@ public static class CheckSources
     public const string VahanApi = "VAHAN";
     public const string CibilApi = "CIBIL_API";
 }
+
+public static class CommentEntityTypes
+{
+    public const string Lead = "LEAD";
+    public const string Customer = "CUSTOMER";
+    public const string Loan = "LOAN";
+}

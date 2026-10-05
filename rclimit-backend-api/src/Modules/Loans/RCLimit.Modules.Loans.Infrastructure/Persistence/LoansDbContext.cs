@@ -18,6 +18,7 @@ public class LoansDbContext : DbContext, ILoansDbContext
     public DbSet<RcPipelineTracker> RcPipelineTrackers => Set<RcPipelineTracker>();
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<LeadCheckLog> LeadCheckLogs => Set<LeadCheckLog>();
+    public DbSet<EntityComment> EntityComments => Set<EntityComment>();
     public DbSet<VerificationLog> VerificationLogs => Set<VerificationLog>();
     public DbSet<DisbursalParticularType> DisbursalParticularTypes => Set<DisbursalParticularType>();
     public DbSet<LenderDisbursedToOption> LenderDisbursedToOptions => Set<LenderDisbursedToOption>();

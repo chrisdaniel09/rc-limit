@@ -4,6 +4,8 @@ using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.Modules.Loans.Application.Leads;
+using RCLimit.Modules.Loans.Application.Comments;
+using RCLimit.Modules.Loans.Domain.ValueObjects;
 
 namespace RCLimit.Modules.Loans.Infrastructure.Controllers;
 
@@ -115,9 +117,37 @@ public class LeadsController : ControllerBase
             ]
         });
     }
+
+    [HttpGet("{id}/comments")]
+    public async Task<IActionResult> GetComments(Guid id)
+    {
+        var result = await _sender.Send(new GetCommentsQuery(CommentEntityTypes.Lead, id));
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links =
+            [
+                new($"/api/v1/leads/{id}", "lead", "GET"),
+                new($"/api/v1/leads/{id}/comments", "add", "POST"),
+            ]
+        });
+    }
+
+    [HttpPost("{id}/comments")]
+    [HasRight("leads.edit")]
+    public async Task<IActionResult> AddComment(Guid id, [FromBody] AddCommentRequest request)
+    {
+        await _sender.Send(new AddCommentCommand(CommentEntityTypes.Lead, id, request.Text));
+        return Created($"/api/v1/leads/{id}/comments", new HateoasResponse<object>
+        {
+            Data = new { message = "Comment added successfully" },
+            Links = [new($"/api/v1/leads/{id}/comments", "list", "GET")]
+        });
+    }
 }
 
 public record AssignLeadRequest(Guid? AssigneeUserId);
 public record UpdateStatusRequest(string Status);
 public record RecordCheckRequest(string CheckType, string Status, int? Score, string? Remarks);
 public record ConvertRequest(string CustomerType, decimal AssignedCeiling, int? MaxPendingRcAllowed);
+public record AddCommentRequest(string Text);

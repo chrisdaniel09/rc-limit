@@ -24,6 +24,14 @@ public class LeadConfiguration : IEntityTypeConfiguration<Lead>
         builder.Property(e => e.CibilScorePreview).HasColumnName("cibil_score_preview");
         builder.Property(e => e.LeadStatus).HasColumnName("lead_status").HasMaxLength(30);
         builder.Property(e => e.Notes).HasColumnName("notes");
+        builder.Property(e => e.AssignedToUserId).HasColumnName("assigned_to_user_id");
+        builder.Property(e => e.AssignedAt).HasColumnName("assigned_at");
+        builder.Property(e => e.CibilCheckStatus).HasColumnName("cibil_check_status").HasMaxLength(20);
+        builder.Property(e => e.CibilCheckedAt).HasColumnName("cibil_checked_at");
+        builder.Property(e => e.RcCheckStatus).HasColumnName("rc_check_status").HasMaxLength(20);
+        builder.Property(e => e.RcCheckedAt).HasColumnName("rc_checked_at");
+        builder.Property(e => e.ConvertedCustomerId).HasColumnName("converted_customer_id");
+        builder.Property(e => e.ConvertedAt).HasColumnName("converted_at");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
     }

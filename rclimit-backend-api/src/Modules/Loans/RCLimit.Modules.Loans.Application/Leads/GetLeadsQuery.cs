@@ -28,7 +28,12 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync(cancellationToken);
 
-        var userIds = leads.Where(l => l.ReferredByUserId.HasValue).Select(l => l.ReferredByUserId!.Value).Distinct().ToList();
+        var userIds = leads
+            .Where(l => l.ReferredByUserId.HasValue || l.AssignedToUserId.HasValue)
+            .SelectMany(l => new[] { l.ReferredByUserId, l.AssignedToUserId }.Where(id => id.HasValue).Cast<Guid>())
+            .Distinct()
+            .ToList();
+
         var userNames = new Dictionary<Guid, string>();
         foreach (var uid in userIds)
         {
@@ -41,7 +46,7 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
             l.LeadId,
             l.LeadSource,
             l.ReferredByUserId,
-            l.ReferredByUserId.HasValue && userNames.TryGetValue(l.ReferredByUserId.Value, out var name) ? name : null,
+            l.ReferredByUserId.HasValue && userNames.TryGetValue(l.ReferredByUserId.Value, out var refName) ? refName : null,
             l.WhatsappPhoneNumber,
             l.ContactPhone,
             l.ApplicantName,
@@ -50,6 +55,12 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
             l.VahanValidationStatus,
             l.LeadStatus,
             l.Notes,
+            l.AssignedToUserId,
+            l.AssignedToUserId.HasValue && userNames.TryGetValue(l.AssignedToUserId.Value, out var assignName) ? assignName : null,
+            l.CibilCheckStatus,
+            l.RcCheckStatus,
+            l.CibilScorePreview,
+            l.ConvertedCustomerId,
             l.CreatedAt)).ToList();
     }
 }

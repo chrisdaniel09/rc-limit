@@ -28,6 +28,20 @@ public class UsersController(ISender sender) : ControllerBase
         });
     }
 
+    [HttpGet("lookup")]
+    public async Task<IActionResult> Lookup()
+    {
+        var result = await sender.Send(new GetUsersLookupQuery());
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links =
+            [
+                new("/api/v1/users/lookup", "self", "GET"),
+            ]
+        });
+    }
+
     [HttpPut("{id:guid}/roles")]
     [HasRight("users.manage")]
     public async Task<IActionResult> SetUserRoles(Guid id, SetUserRolesRequest request, CancellationToken cancellationToken)

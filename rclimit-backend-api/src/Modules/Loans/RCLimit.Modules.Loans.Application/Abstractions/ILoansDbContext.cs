@@ -14,6 +14,7 @@ public interface ILoansDbContext
     DbSet<DisbursalLineItem> DisbursalLineItems { get; }
     DbSet<RcPipelineTracker> RcPipelineTrackers { get; }
     DbSet<Lead> Leads { get; }
+    DbSet<LeadCheckLog> LeadCheckLogs { get; }
     DbSet<VerificationLog> VerificationLogs { get; }
     DbSet<DisbursalParticularType> DisbursalParticularTypes { get; }
     DbSet<LenderDisbursedToOption> LenderDisbursedToOptions { get; }

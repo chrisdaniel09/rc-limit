@@ -14,8 +14,16 @@ public class Lead
     public string? VehicleRegistrationNumber { get; set; }
     public string VahanValidationStatus { get; set; } = "PENDING";
     public int? CibilScorePreview { get; set; }
-    public string LeadStatus { get; set; } = "INBOUND_INCOMPLETE";
+    public string LeadStatus { get; set; } = "NEW";
     public string? Notes { get; set; }
+    public Guid? AssignedToUserId { get; set; }
+    public DateTime? AssignedAt { get; set; }
+    public string CibilCheckStatus { get; set; } = "NOT_STARTED";
+    public DateTime? CibilCheckedAt { get; set; }
+    public string RcCheckStatus { get; set; } = "NOT_STARTED";
+    public DateTime? RcCheckedAt { get; set; }
+    public Guid? ConvertedCustomerId { get; set; }
+    public DateTime? ConvertedAt { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 }

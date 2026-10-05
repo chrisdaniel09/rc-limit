@@ -1,10 +1,12 @@
 import { useState } from 'react';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPost } from '../../api/client';
+import { useAuth } from '../../contexts/AuthContext';
 import DataTable, { type Column } from '../../components/DataTable';
 import Badge, { statusVariant } from '../../components/Badge';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
+import LeadDetailModal from './LeadDetailModal';
 
 interface Lead {
   leadId: string;
@@ -19,6 +21,12 @@ interface Lead {
   vahanValidationStatus: string;
   leadStatus: string;
   notes: string | null;
+  assignedToUserId: string | null;
+  assignedToUserName: string | null;
+  cibilCheckStatus: string;
+  rcCheckStatus: string;
+  cibilScorePreview: number | null;
+  convertedCustomerId: string | null;
   createdAt: string;
 }
 
@@ -38,18 +46,18 @@ const LEAD_SOURCES = [
   { value: 'OTHER', label: 'Other' },
 ];
 
-const formatCurrency = (amount: number | null) =>
-  amount ? new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount) : '-';
-
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
 };
 
 export default function LeadsPage() {
+  const { hasRight } = useAuth();
   const { data, loading, refetch } = useFetch<Lead[]>('/api/v1/leads');
-  const { data: users } = useFetch<StaffUser[]>('/api/v1/users');
+  const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const [showModal, setShowModal] = useState(false);
+  const [showDetailModal, setShowDetailModal] = useState(false);
+  const [selectedLead, setSelectedLead] = useState<Lead | null>(null);
   const [form, setForm] = useState({
     leadSource: 'WALK_IN', referredByUserId: '',
     applicantName: '', whatsappPhoneNumber: '', contactPhone: '',
@@ -60,11 +68,9 @@ export default function LeadsPage() {
   const columns: Column<Lead>[] = [
     { key: 'applicantName', header: 'Applicant' },
     { key: 'leadSource', header: 'Source', render: (l) => <Badge text={l.leadSource} variant="neutral" /> },
-    { key: 'referredByUserName', header: 'Brought By', render: (l) => l.referredByUserName ?? '-' },
-    { key: 'contactPhone', header: 'Contact', render: (l) => l.contactPhone || l.whatsappPhoneNumber },
-    { key: 'requestedLoanAmount', header: 'Amount', render: (l) => formatCurrency(l.requestedLoanAmount) },
-    { key: 'vehicleRegistrationNumber', header: 'Vehicle Reg' },
-    { key: 'vahanValidationStatus', header: 'Vahan', render: (l) => <Badge text={l.vahanValidationStatus} variant={statusVariant(l.vahanValidationStatus)} /> },
+    { key: 'assignedToUserName', header: 'Assigned To', render: (l) => l.assignedToUserName ?? '-' },
+    { key: 'cibilCheckStatus', header: 'CIBIL', render: (l) => <Badge text={l.cibilCheckStatus} variant={statusVariant(l.cibilCheckStatus)} /> },
+    { key: 'rcCheckStatus', header: 'RC', render: (l) => <Badge text={l.rcCheckStatus} variant={statusVariant(l.rcCheckStatus)} /> },
     { key: 'leadStatus', header: 'Status', render: (l) => <Badge text={l.leadStatus} variant={statusVariant(l.leadStatus)} /> },
     { key: 'createdAt', header: 'Created', render: (l) => formatDate(l.createdAt) },
   ];
@@ -90,8 +96,9 @@ export default function LeadsPage() {
         requestedLoanAmount: '', vehicleRegistrationNumber: '', notes: '',
       });
       refetch();
-    } catch {
-      // handle
+    } catch (err) {
+      console.error('Failed to create lead:', err);
+      alert('Failed to create lead. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -105,13 +112,22 @@ export default function LeadsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">All Leads</h2>
+        <h2 className="text-lg font-semibold text-gray-900">Leads</h2>
         <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
           Add Lead
         </button>
       </div>
 
-      <DataTable columns={columns} data={data ?? []} loading={loading} searchPlaceholder="Search leads..." />
+      <DataTable
+        columns={columns}
+        data={data ?? []}
+        loading={loading}
+        searchPlaceholder="Search leads..."
+        onRowClick={hasRight('leads.edit') ? (lead) => {
+          setSelectedLead(lead);
+          setShowDetailModal(true);
+        } : undefined}
+      />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lead">
         <form onSubmit={handleSubmit}>
@@ -133,6 +149,23 @@ export default function LeadsPage() {
           </div>
         </form>
       </Modal>
+
+      {selectedLead && (
+        <LeadDetailModal
+          isOpen={showDetailModal}
+          onClose={() => {
+            setShowDetailModal(false);
+            setSelectedLead(null);
+          }}
+          lead={selectedLead}
+          users={users ?? []}
+          onLeadUpdated={() => {
+            refetch();
+            setShowDetailModal(false);
+            setSelectedLead(null);
+          }}
+        />
+      )}
     </div>
   );
 }

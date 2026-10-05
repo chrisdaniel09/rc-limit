@@ -1,5 +1,11 @@
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+
+function resolveUrl(url: string): string {
+  return API_BASE + url;
+}
+
 interface Role {
   roleId: string;
   code: string;
@@ -70,7 +76,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const login = async (email: string, password: string) => {
-    const res = await fetch('/api/v1/auth/login', {
+    const res = await fetch(resolveUrl('/api/v1/auth/login'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password }),
@@ -88,7 +94,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const register = async (email: string, password: string, fullName: string, phoneNumber: string) => {
-    const res = await fetch('/api/v1/auth/register', {
+    const res = await fetch(resolveUrl('/api/v1/auth/register'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ email, password, fullName, phoneNumber }),
@@ -108,7 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = async () => {
     const refreshToken = localStorage.getItem('rclimit_refresh');
     try {
-      await fetch('/api/v1/auth/logout', {
+      await fetch(resolveUrl('/api/v1/auth/logout'), {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',

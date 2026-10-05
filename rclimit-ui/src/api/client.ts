@@ -8,6 +8,12 @@ interface ProblemDetails {
   traceId?: string;
 }
 
+const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+
+function resolveUrl(url: string): string {
+  return API_BASE + url;
+}
+
 export async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {
   const token = localStorage.getItem('rclimit_token');
   const headers: Record<string, string> = {
@@ -18,7 +24,7 @@ export async function apiFetch<T>(url: string, options: RequestInit = {}): Promi
     headers['Authorization'] = `Bearer ${token}`;
   }
 
-  const res = await fetch(url, { ...options, headers });
+  const res = await fetch(resolveUrl(url), { ...options, headers });
 
   if (res.status === 401) {
     localStorage.removeItem('rclimit_token');

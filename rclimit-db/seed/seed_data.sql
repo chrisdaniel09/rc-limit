@@ -106,18 +106,6 @@ INSERT INTO disbursal_particular_types (particular_type_id, tenant_id, code, lab
 ('d1a00007-0000-0000-0000-000000000007', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'VALUATION_FEES', 'Valuation Fees', 7),
 ('d1a00008-0000-0000-0000-000000000008', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'COMMISSION_PAYOUT', 'Commission Payout', 8);
 
--- 15. SuperAdmin Role for default tenant
-INSERT INTO auth.roles (role_id, tenant_id, code, name, description, is_system, is_active)
-VALUES ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'SUPER_ADMIN', 'SuperAdmin', 'System administrator with all rights', TRUE, TRUE);
-
--- 16. Assign all rights to SuperAdmin role
-INSERT INTO auth.role_rights (role_id, right_id)
-SELECT 'ffffffff-ffff-ffff-ffff-ffffffffffff', right_id FROM auth.rights WHERE is_active = TRUE;
-
--- 17. Assign SuperAdmin role to default admin user
-INSERT INTO auth.user_roles (user_id, role_id)
-VALUES ('b2c3d4e5-f6a7-8901-bcde-f12345678901', 'ffffffff-ffff-ffff-ffff-ffffffffffff');
-
 
 
 -- 5. Seed rights catalogue (global, run once)
@@ -146,4 +134,19 @@ VALUES
     (gen_random_uuid(), 'users.manage', 'users', 'Manage Users', 'Assign and revoke user roles', TRUE),
     (gen_random_uuid(), 'roles.manage', 'roles', 'Manage Roles', 'Create, edit, delete roles and assign rights', TRUE),
     (gen_random_uuid(), 'rights.manage', 'rights', 'Manage Rights', 'Manage the rights catalogue', TRUE)
-ON CONFLICT DO NOTHING;
+
+
+
+-- 15. SuperAdmin Role for default tenant
+INSERT INTO auth.roles (role_id, tenant_id, code, name, description, is_system, is_active)
+VALUES ('ffffffff-ffff-ffff-ffff-ffffffffffff', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'SUPER_ADMIN', 'SuperAdmin', 'System administrator with all rights', TRUE, TRUE);
+
+-- 16. Assign all rights to SuperAdmin role
+INSERT INTO auth.role_rights (role_id, right_id)
+SELECT 'ffffffff-ffff-ffff-ffff-ffffffffffff', right_id FROM auth.rights WHERE is_active = TRUE;
+
+-- 17. Assign SuperAdmin role to default admin user
+INSERT INTO auth.user_roles (user_id, role_id)
+VALUES ('b2c3d4e5-f6a7-8901-bcde-f12345678901', 'ffffffff-ffff-ffff-ffff-ffffffffffff');
+
+

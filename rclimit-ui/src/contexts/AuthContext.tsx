@@ -133,7 +133,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const hasRight = (rightCode: string): boolean => {
     if (!state.user) return false;
-    if (state.user.roles?.some(r => r.name === 'SuperAdmin')) return true;
     return state.user.rightCodes?.includes(rightCode) ?? false;
   };
 

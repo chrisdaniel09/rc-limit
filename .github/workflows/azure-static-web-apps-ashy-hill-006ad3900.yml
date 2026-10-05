@@ -25,6 +25,14 @@ jobs:
         with:
           submodules: true
           lfs: false
+      - name: Generate config.json
+        run: |
+          mkdir -p rclimit-ui/public
+          cat > rclimit-ui/public/config.json <<EOF
+          {
+            "apiBaseUrl": "${{ secrets.API_BASE_URL }}"
+          }
+          EOF
       - name: Build And Deploy
         id: builddeploy
         uses: Azure/static-web-apps-deploy@v1

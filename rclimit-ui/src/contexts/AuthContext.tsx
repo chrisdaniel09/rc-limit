@@ -1,9 +1,8 @@
 import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
-
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
+import { loadConfig, getApiBaseUrl } from '../config';
 
 function resolveUrl(url: string): string {
-  return API_BASE + url;
+  return getApiBaseUrl() + url;
 }
 
 interface Role {
@@ -62,6 +61,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
+    loadConfig();
     const token = localStorage.getItem('rclimit_token');
     const userJson = localStorage.getItem('rclimit_user');
     if (token && userJson) {

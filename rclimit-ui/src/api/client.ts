@@ -1,3 +1,5 @@
+import { getApiBaseUrl } from '../config';
+
 interface ProblemDetails {
   type?: string;
   title?: string;
@@ -8,10 +10,8 @@ interface ProblemDetails {
   traceId?: string;
 }
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? '';
-
 function resolveUrl(url: string): string {
-  return API_BASE + url;
+  return getApiBaseUrl() + url;
 }
 
 export async function apiFetch<T>(url: string, options: RequestInit = {}): Promise<T> {

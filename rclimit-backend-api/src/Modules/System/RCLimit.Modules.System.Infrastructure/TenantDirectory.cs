@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.DependencyInjection;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.Modules.System.Infrastructure.Persistence;
 
@@ -10,7 +11,7 @@ namespace RCLimit.Modules.System.Infrastructure;
 /// Implements domain-based multi-tenancy for request routing.
 /// </summary>
 public class TenantDirectory(
-    SystemDbContext dbContext,
+    IServiceProvider serviceProvider,
     IMemoryCache cache,
     TenantResolutionOptions options) : ITenantDirectory
 {
@@ -22,37 +23,19 @@ public class TenantDirectory(
         if (string.IsNullOrWhiteSpace(host))
             return null;
 
-        // Normalize: lowercase, strip port
         var normalizedHost = NormalizeHost(host);
         var cacheKey = $"{CacheKeyPrefix}{normalizedHost}";
 
-        // Try cache first
         if (cache.TryGetValue(cacheKey, out TenantInfo? cached))
             return cached;
 
-        // 1. Try exact match on custom_domain (highest priority)
-        var tenant = await dbContext.Tenants
-            .FirstOrDefaultAsync(
-                t => t.CustomDomain == normalizedHost,
-                cancellationToken);
-
-        if (tenant?.IsActive == true)
+        using (var scope = serviceProvider.CreateScope())
         {
-            var info = new TenantInfo(tenant.TenantId, tenant.Slug, true);
-            cache.Set(cacheKey, info, _cacheDuration);
-            return info;
-        }
+            var dbContext = scope.ServiceProvider.GetRequiredService<SystemDbContext>();
 
-        // 2. Try to match subdomain against configured base domains
-        // E.g., if host is "acme.rclimit.in" and base domains include "rclimit.in",
-        // extract "acme" as the slug
-        var baseDomain = options.BaseDomains.FirstOrDefault(bd => normalizedHost.EndsWith($".{bd}"));
-        if (!string.IsNullOrEmpty(baseDomain))
-        {
-            var slug = normalizedHost[..^(baseDomain.Length + 1)]; // Remove ".{baseDomain}"
-            tenant = await dbContext.Tenants
+            var tenant = await dbContext.Tenants
                 .FirstOrDefaultAsync(
-                    t => string.Equals(t.Slug, slug, StringComparison.OrdinalIgnoreCase),
+                    t => t.CustomDomain == normalizedHost,
                     cancellationToken);
 
             if (tenant?.IsActive == true)
@@ -61,11 +44,27 @@ public class TenantDirectory(
                 cache.Set(cacheKey, info, _cacheDuration);
                 return info;
             }
-        }
 
-        // No match found, cache null result to avoid repeated DB queries
-        cache.Set<TenantInfo?>(cacheKey, null, _cacheDuration);
-        return null;
+            var baseDomain = options.BaseDomains.FirstOrDefault(bd => normalizedHost.EndsWith($".{bd}"));
+            if (!string.IsNullOrEmpty(baseDomain))
+            {
+                var slug = normalizedHost[..^(baseDomain.Length + 1)];
+                tenant = await dbContext.Tenants
+                    .FirstOrDefaultAsync(
+                        t => string.Equals(t.Slug, slug, StringComparison.OrdinalIgnoreCase),
+                        cancellationToken);
+
+                if (tenant?.IsActive == true)
+                {
+                    var info = new TenantInfo(tenant.TenantId, tenant.Slug, true);
+                    cache.Set(cacheKey, info, _cacheDuration);
+                    return info;
+                }
+            }
+
+            cache.Set<TenantInfo?>(cacheKey, null, _cacheDuration);
+            return null;
+        }
     }
 
     /// <summary>

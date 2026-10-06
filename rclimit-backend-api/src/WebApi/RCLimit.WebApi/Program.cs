@@ -29,7 +29,6 @@ try
     var builder = WebApplication.CreateBuilder(args);
 
     var envConn = Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
-    Log.Information("Connection string from environment variable: {ConnectionString}", envConn);
     if (!string.IsNullOrEmpty(envConn))
         builder.Configuration["ConnectionStrings:DefaultConnection"] = envConn;
 
@@ -54,7 +53,7 @@ try
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();
     builder.Services.AddProblemDetails();
 
-    builder.Services.AddMemoryCache(); // Required for TenantDirectory caching
+    builder.Services.AddMemoryCache();
 
     builder.Services.AddScoped<TenantContext>();
     builder.Services.AddScoped<ITenantContext>(sp => sp.GetRequiredService<TenantContext>());
@@ -62,7 +61,6 @@ try
     builder.Services.AddScoped<IWhatsAppService, NoOpWhatsAppService>();
     builder.Services.AddScoped<IVahanService, NoOpVahanService>();
 
-    // Configure tenant resolution options (domain-based multi-tenancy)
     var tenantResolutionOptions = new TenantResolutionOptions
     {
         BaseDomains = builder.Configuration.GetSection("Tenancy:BaseDomains").Get<List<string>>() ?? []
@@ -75,7 +73,6 @@ try
     builder.Services.AddPartnersModule(builder.Configuration);
     builder.Services.AddSystemModule(builder.Configuration);
 
-    // Register tenant directory for domain-based resolution as singleton (safe for caching, used in singleton CORS policy)
     builder.Services.AddSingleton<ITenantDirectory, TenantDirectory>();
 
     var jwtSecret = builder.Configuration["Jwt:Secret"]!;
@@ -102,7 +99,6 @@ try
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, HasRightPolicyProvider>();
     builder.Services.AddAuthorization();
 
-    // Static allowed origins (e.g., localhost for dev)
     var staticAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
         ?? new[] { "http://localhost:5173", "http://anna-finance.localhost:5173" };
 
@@ -117,7 +113,6 @@ try
         });
     });
 
-    // Register the dynamic CORS policy provider that checks tenant domains
     builder.Services.AddSingleton<ICorsPolicyProvider>(sp =>
         new TenantAwareCorsPolicy(
             sp.GetRequiredService<ITenantDirectory>(),
@@ -141,13 +136,12 @@ try
         });
     }
 
-    // Pipeline order per spec
     app.UseExceptionHandler();
     app.UseCors();
     app.UseMiddleware<CorrelationIdMiddleware>();
     app.UseSerilogRequestLogging();
     app.UseMiddleware<DiagnosticContextMiddleware>();
-    app.UseRouting(); // Must come before UseAuthentication for route values to be available
+    app.UseRouting();
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseMiddleware<TenantMiddleware>();

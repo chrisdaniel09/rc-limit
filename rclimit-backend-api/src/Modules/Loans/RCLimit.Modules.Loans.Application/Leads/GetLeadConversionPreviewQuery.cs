@@ -60,12 +60,14 @@ public class GetLeadConversionPreviewQueryHandler : IRequestHandler<GetLeadConve
             })
             .ToListAsync(cancellationToken);
 
+        var phoneMatchCustomerIds = phoneMatches.Select(pm => pm.CustomerId).ToHashSet();
+
         var nameMatches = await _db.Customers
             .AsNoTracking()
             .Where(c => c.TenantId == _tenant.TenantId &&
                 (c.LegalName.ToLower().Contains(applicantNameLower) ||
                  (c.TradeName != null && c.TradeName.ToLower().Contains(applicantNameLower))))
-            .Where(c => !phoneMatches.Any(pm => pm.CustomerId == c.CustomerId))
+            .Where(c => !phoneMatchCustomerIds.Contains(c.CustomerId))
             .Select(c => new
             {
                 c.CustomerId,

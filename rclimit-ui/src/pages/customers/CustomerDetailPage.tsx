@@ -232,7 +232,7 @@ export default function CustomerDetailPage() {
 
       {/* Lead History Section */}
       <h3 className="text-lg font-semibold text-gray-900 mt-8 mb-4">Lead History</h3>
-      {leads.length === 0 ? (
+      {(leads ?? []).length === 0 ? (
         <div className="text-center text-gray-500 py-8 bg-white border border-gray-200 rounded-lg">No linked leads for this customer</div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-gray-200">
@@ -250,7 +250,7 @@ export default function CustomerDetailPage() {
               </tr>
             </thead>
             <tbody className="bg-white divide-y divide-gray-200">
-              {leads.map((lead) => (
+              {(leads ?? []).map((lead) => (
                 <tr key={lead.leadId} className="hover:bg-gray-50 transition-colors">
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{lead.applicantName}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{lead.leadSource}</td>

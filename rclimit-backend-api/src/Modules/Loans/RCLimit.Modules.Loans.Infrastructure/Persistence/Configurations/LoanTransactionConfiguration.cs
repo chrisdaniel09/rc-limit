@@ -33,12 +33,14 @@ public class LoanTransactionConfiguration : IEntityTypeConfiguration<LoanTransac
         builder.Property(e => e.LoanStatus).HasColumnName("loan_status").HasMaxLength(30);
         builder.Property(e => e.DisbursalDate).HasColumnName("disbursal_date");
         builder.Property(e => e.Remarks).HasColumnName("remarks");
+        builder.Property(e => e.PostDisbursementDocumentStatusId).HasColumnName("post_disbursement_document_status_id");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
 
         builder.HasOne(e => e.Customer).WithMany().HasForeignKey(e => e.CustomerId);
         builder.HasOne(e => e.Vehicle).WithMany().HasForeignKey(e => e.VehicleId);
         builder.HasOne(e => e.Pool).WithMany().HasForeignKey(e => e.PoolId);
+        builder.HasOne(e => e.DocumentStatus).WithMany().HasForeignKey(e => e.PostDisbursementDocumentStatusId);
         builder.HasMany(e => e.DisbursalLineItems).WithOne(e => e.LoanTransaction).HasForeignKey(e => e.LoanId);
         builder.HasOne(e => e.RcTracker).WithOne(e => e.LoanTransaction).HasForeignKey<RcPipelineTracker>(e => e.LoanId);
     }

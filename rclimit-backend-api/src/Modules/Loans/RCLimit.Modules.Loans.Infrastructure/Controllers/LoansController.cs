@@ -96,6 +96,23 @@ public class LoansController : ControllerBase
             ]
         });
     }
+
+    [HttpPatch("{id:guid}/document-status")]
+    public async Task<IActionResult> UpdateDocumentStatus(Guid id, [FromBody] UpdateLoanDocumentStatusRequest request)
+    {
+        var result = await _sender.Send(new UpdateLoanDocumentStatusCommand(id, request.DocumentStatusId))
+                     ?? throw new NotFoundException("Loan", id);
+
+        return Ok(new HateoasResponse<LoanDetailDto>
+        {
+            Data = result,
+            Links =
+            [
+                new($"/api/v1/loans/{id}", "self", "GET"),
+                new("/api/v1/loans", "list", "GET"),
+            ]
+        });
+    }
 }
 
 public record AddDisbursalLineItemRequest(
@@ -105,3 +122,5 @@ public record AddDisbursalLineItemRequest(
     string? AccountNo,
     string? TransactionId,
     decimal DebitAmount);
+
+public record UpdateLoanDocumentStatusRequest(Guid? DocumentStatusId);

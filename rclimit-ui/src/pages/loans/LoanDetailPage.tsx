@@ -18,6 +18,14 @@ interface LineItem {
   runningBalanceAmt: number;
 }
 
+interface DocumentStatus {
+  documentStatusId: string;
+  code: string;
+  label: string;
+  sortOrder: number;
+  isActive: boolean;
+}
+
 interface LoanDetail {
   loanId: string;
   serialNumber: number;
@@ -41,6 +49,9 @@ interface LoanDetail {
   remarks: string;
   rcStage: string;
   rcAgingStatus: string;
+  rcAgingDays: number | null;
+  postDisbursementDocumentStatusId: string | null;
+  postDisbursementDocumentStatusLabel: string | null;
   isDisbursalLineItemsEnabled: boolean;
   lineItems: LineItem[];
 }
@@ -52,6 +63,12 @@ const formatCurrency = (amount: number) =>
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+};
+
+const calculateBalance = (netDisbursed: number, lineItems: LineItem[]): number => {
+  if (!lineItems || lineItems.length === 0) return netDisbursed;
+  const lastItem = lineItems[lineItems.length - 1];
+  return lastItem.runningBalanceAmt;
 };
 
 interface ParticularType {
@@ -74,9 +91,13 @@ export default function LoanDetailPage() {
   const { id } = useParams<{ id: string }>();
   const { data: loan, links, loading, refetch } = useFetch<LoanDetail>(`/api/v1/loans/${id}`, [id]);
   const { data: particularTypes } = useFetch<ParticularType[]>('/api/v1/particular-types');
+  const { data: documentStatuses } = useFetch<DocumentStatus[]>('/api/v1/document-statuses');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ particularType: '', modeOfPayment: '', bankName: '', accountNo: '', transactionId: '', debitAmount: '' });
   const [submitting, setSubmitting] = useState(false);
+  const [selectedDocumentStatus, setSelectedDocumentStatus] = useState<string | null>(null);
+  const [updatingDocumentStatus, setUpdatingDocumentStatus] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   const handleAddLineItem = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -88,15 +109,36 @@ export default function LoanDetailPage() {
         bankName: form.bankName,
         accountNo: form.accountNo,
         transactionId: form.transactionId,
-        debitAmount: parseFloat(form.debitAmount),
+        debitAmount: Number.parseFloat(form.debitAmount),
       });
       setShowModal(false);
       setForm({ particularType: '', modeOfPayment: '', bankName: '', accountNo: '', transactionId: '', debitAmount: '' });
-      refetch();
-    } catch {
-      // handle
+      setRefreshing(true);
+      await refetch();
+      setRefreshing(false);
+    } catch (error) {
+      console.error('Error adding line item:', error);
     } finally {
       setSubmitting(false);
+    }
+  };
+
+  const handleUpdateDocumentStatus = async (statusId: string | null) => {
+    if (!id) return;
+    setUpdatingDocumentStatus(true);
+    setRefreshing(true);
+    try {
+      await apiPost(`/api/v1/loans/${id}/document-status`, {
+        documentStatusId: statusId || null,
+      });
+      setSelectedDocumentStatus(statusId);
+      await refetch();
+      setRefreshing(false);
+    } catch (error) {
+      console.error('Error updating document status:', error);
+      setRefreshing(false);
+    } finally {
+      setUpdatingDocumentStatus(false);
     }
   };
 
@@ -115,6 +157,17 @@ export default function LoanDetailPage() {
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-lg font-semibold text-gray-900">Loan {loan.loanNumber || `#${loan.serialNumber}`}</h2>
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => {
+                setRefreshing(true);
+                refetch().then(() => setRefreshing(false));
+              }}
+              disabled={refreshing}
+              className="rounded-md border border-gray-300 px-3 py-1.5 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 transition-colors"
+              title="Refresh loan data"
+            >
+              {refreshing ? '↻ Refreshing...' : '↻ Refresh'}
+            </button>
             {hasLink('upload-rc-proof') && (
               <button className="rounded-md bg-amber-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-amber-700 transition-colors">
                 Upload RC Proof
@@ -132,11 +185,28 @@ export default function LoanDetailPage() {
           <div><span className="text-gray-500">Sanctioned</span><p className="font-medium text-green-700">{formatCurrency(loan.sanctionedAmount)}</p></div>
           <div><span className="text-gray-500">Lender Disbursed Amt</span><p className="font-medium text-green-700">{formatCurrency(loan.lenderDisbursedAmount)}</p></div>
           <div><span className="text-gray-500">Lender Disbursed To</span><p className="font-medium text-gray-900">{loan.lenderDisbursedTo?.replace(/_/g, ' ') || '-'}</p></div>
-          <div><span className="text-gray-500">Net Disbursed</span><p className="font-medium text-blue-700">{formatCurrency(loan.netDisbursedAmount)}</p></div>
+          <div><span className="text-gray-500">Net Disbursed</span><p className="font-medium text-blue-700 flex items-center gap-1">{formatCurrency(loan.netDisbursedAmount)} {refreshing && <span className="text-xs text-amber-500">Updating...</span>}</p></div>
+          <div><span className="text-gray-500">Balance Amount</span><p className="font-medium text-blue-700 flex items-center gap-1">{formatCurrency(calculateBalance(loan.netDisbursedAmount, loan.lineItems))} {refreshing && <span className="text-xs text-amber-500">Updating...</span>}</p></div>
           <div><span className="text-gray-500">Disbursal Date</span><p className="font-medium text-gray-900">{formatDate(loan.disbursalDate)}</p></div>
           <div><span className="text-gray-500">Customer Rate</span><p className="font-medium text-gray-900">{loan.customerRate}%</p></div>
           <div><span className="text-gray-500">RC Stage</span><p><Badge text={loan.rcStage || 'N/A'} variant={statusVariant(loan.rcStage)} /></p></div>
-          <div><span className="text-gray-500">RC Aging</span><p><Badge text={loan.rcAgingStatus || 'N/A'} variant={statusVariant(loan.rcAgingStatus)} /></p></div>
+          <div><span className="text-gray-500">RC Aging</span><p className="font-medium text-gray-900">{loan.rcAgingDays !== null ? `${loan.rcAgingDays} days` : 'N/A'}</p></div>
+          <div><span className="text-gray-500">Post Disbursement Doc</span>
+            <div className="flex items-center gap-2 mt-1">
+              <select
+                value={selectedDocumentStatus || loan.postDisbursementDocumentStatusId || ''}
+                onChange={(e) => handleUpdateDocumentStatus(e.target.value || null)}
+                disabled={updatingDocumentStatus}
+                className="rounded-md border border-gray-300 px-3 py-1.5 text-sm text-gray-900 bg-white hover:border-gray-400 disabled:opacity-50"
+              >
+                <option value="">Select Status</option>
+                {documentStatuses?.filter(ds => ds.isActive).map(ds => (
+                  <option key={ds.documentStatusId} value={ds.documentStatusId}>{ds.label}</option>
+                ))}
+              </select>
+              {updatingDocumentStatus && <span className="text-xs text-gray-400">Updating...</span>}
+            </div>
+          </div>
           {loan.remarks && <div className="col-span-2 md:col-span-4"><span className="text-gray-500">Remarks</span><p className="text-gray-700">{loan.remarks}</p></div>}
         </div>
       </div>

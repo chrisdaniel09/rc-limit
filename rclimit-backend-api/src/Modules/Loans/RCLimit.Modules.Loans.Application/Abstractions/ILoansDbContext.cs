@@ -19,5 +19,6 @@ public interface ILoansDbContext
     DbSet<VerificationLog> VerificationLogs { get; }
     DbSet<DisbursalParticularType> DisbursalParticularTypes { get; }
     DbSet<LenderDisbursedToOption> LenderDisbursedToOptions { get; }
+    DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

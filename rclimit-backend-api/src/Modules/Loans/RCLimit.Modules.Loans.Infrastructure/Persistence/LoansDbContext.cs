@@ -22,6 +22,7 @@ public class LoansDbContext : DbContext, ILoansDbContext
     public DbSet<VerificationLog> VerificationLogs => Set<VerificationLog>();
     public DbSet<DisbursalParticularType> DisbursalParticularTypes => Set<DisbursalParticularType>();
     public DbSet<LenderDisbursedToOption> LenderDisbursedToOptions => Set<LenderDisbursedToOption>();
+    public DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses => Set<PostDisbursementDocumentStatus>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

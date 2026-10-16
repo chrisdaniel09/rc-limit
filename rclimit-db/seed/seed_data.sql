@@ -157,3 +157,9 @@ VALUES
     (gen_random_uuid(), '<tenant_id>', 'ANNA_FINANCE', 'AnnaFinance', 2);
 
 
+
+-- 13. Default Post Disbursement Document Statuses
+INSERT INTO post_disbursement_document_statuses (document_status_id, tenant_id, code, label, sort_order, is_active, created_at)
+VALUES
+    (gen_random_uuid(), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'RC_RECEIVED', 'RC Received', 1, TRUE, CURRENT_TIMESTAMP),
+    (gen_random_uuid(), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'INSURANCE_RECEIVED', 'Insurance Received', 2, TRUE, CURRENT_TIMESTAMP);

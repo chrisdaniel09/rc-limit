@@ -37,6 +37,10 @@ public class GetLoanDetailQueryHandler : IRequestHandler<GetLoanDetailQuery, Loa
 
         var isDisbursalEnabled = lenderOption?.AllowsDisbursalLineItems ?? false;
 
+        var agingDays = loan.LoanStatus == "DISBURSED_RC_PENDING"
+            ? DateOnly.FromDateTime(DateTime.UtcNow).DayNumber - loan.DisbursalDate.DayNumber
+            : (int?)null;
+
         return new LoanDetailDto(
             loan.LoanId,
             loan.LoanNumber,
@@ -63,6 +67,9 @@ public class GetLoanDetailQueryHandler : IRequestHandler<GetLoanDetailQuery, Loa
             loan.Remarks,
             loan.RcTracker?.CurrentStage,
             loan.RcTracker?.AgingStatus,
+            agingDays,
+            loan.PostDisbursementDocumentStatusId,
+            loan.DocumentStatus?.Label,
             isDisbursalEnabled,
             loan.DisbursalLineItems
                 .OrderBy(li => li.EntryDate)

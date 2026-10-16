@@ -24,12 +24,14 @@ public class LoanTransaction
     public string LoanStatus { get; set; } = "DISBURSED_RC_PENDING";
     public DateOnly DisbursalDate { get; set; } = DateOnly.FromDateTime(DateTime.UtcNow);
     public string? Remarks { get; set; }
+    public Guid? PostDisbursementDocumentStatusId { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
     public Customer Customer { get; set; } = null!;
     public Vehicle Vehicle { get; set; } = null!;
     public MasterBankPool Pool { get; set; } = null!;
+    public PostDisbursementDocumentStatus? DocumentStatus { get; set; }
     public ICollection<DisbursalLineItem> DisbursalLineItems { get; set; } = new List<DisbursalLineItem>();
     public RcPipelineTracker? RcTracker { get; set; }
 }

@@ -40,5 +40,8 @@ public record LoanDetailDto(
     string? Remarks,
     string? RcStage,
     string? RcAgingStatus,
+    int? RcAgingDays,
+    Guid? PostDisbursementDocumentStatusId,
+    string? PostDisbursementDocumentStatusLabel,
     bool IsDisbursalLineItemsEnabled,
     List<DisbursalLineItems.DisbursalLineItemDto> LineItems);

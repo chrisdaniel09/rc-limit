@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
-import { apiPut, apiPost } from '../../api/client';
+import { apiPut, apiPost, apiGet } from '../../api/client';
 import { useAuth } from '../../contexts/AuthContext';
 import FormField from '../../components/FormField';
 import CommentsPanel from '../../components/CommentsPanel';
@@ -167,7 +167,7 @@ export default function LeadDetailPage() {
     setLoadingPreview(true);
     try {
       const url = `/api/v1/leads/${leadId}/conversion-preview${customerId ? `?customerId=${customerId}` : ''}`;
-      const response = await apiPost<ConversionPreview>(url, {});
+      const response = await apiGet<ConversionPreview>(url);
       setConversionPreview(response);
     } catch (err) {
       console.error('Failed to fetch conversion preview:', err);

@@ -222,8 +222,8 @@ export default function LeadDetailPage() {
         payload.confirmVehicleTransfer = confirmVehicleTransfer;
       }
 
-      const response = await apiPost<{ customerId: string }>(`/api/v1/leads/${leadId}/convert`, payload);
-      navigate(`/customers/${response.customerId}`);
+      const response = await apiPost<any>(`/api/v1/leads/${leadId}/convert`, payload);
+      navigate(`/customers/${response.data.customerId}`);
     } catch (err) {
       console.error('Failed to convert lead:', err);
       alert('Failed to convert lead. Please try again.');

@@ -163,3 +163,19 @@ INSERT INTO post_disbursement_document_statuses (document_status_id, tenant_id, 
 VALUES
     (gen_random_uuid(), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'RC_RECEIVED', 'RC Received', 1, TRUE, CURRENT_TIMESTAMP),
     (gen_random_uuid(), 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'INSURANCE_RECEIVED', 'Insurance Received', 2, TRUE, CURRENT_TIMESTAMP);
+
+
+
+-- Backfill existing converted leads: one lead_customers row per converted lead (CREATED, no match basis)
+INSERT INTO lead_customers (tenant_id, lead_id, customer_id, link_type, match_basis, linked_by_user_id, linked_at)
+SELECT l.tenant_id, l.lead_id, l.converted_customer_id, 'CREATED', NULL, NULL, l.converted_at
+FROM leads l
+WHERE l.converted_customer_id IS NOT NULL
+ON CONFLICT DO NOTHING;
+
+-- Backfill existing vehicles: one open customer_vehicles row per vehicle with an owner
+INSERT INTO customer_vehicles (tenant_id, customer_id, vehicle_id, source_lead_id, owned_from, owned_to, end_reason)
+SELECT v.tenant_id, v.owner_customer_id, v.vehicle_id, NULL, v.created_at, NULL, NULL
+FROM vehicles v
+WHERE v.owner_customer_id IS NOT NULL
+ON CONFLICT DO NOTHING;

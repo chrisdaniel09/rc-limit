@@ -55,14 +55,25 @@ public class LeadsController : ControllerBase
     public async Task<IActionResult> GetById(Guid id)
     {
         var result = await _sender.Send(new GetLeadDetailQuery(id));
+
+        var links = new List<HateoasLink>
+        {
+            new("/api/v1/leads", "list", "GET"),
+            new($"/api/v1/leads/{id}", "self", "GET"),
+        };
+
+        // Add edit and convert links only if lead is not locked
+        if (!result.IsLocked)
+        {
+            links.Add(new($"/api/v1/leads/{id}", "edit", "PUT"));
+            links.Add(new($"/api/v1/leads/{id}/convert", "convert", "POST"));
+            links.Add(new($"/api/v1/leads/{id}/conversion-preview", "conversion-preview", "GET"));
+        }
+
         return Ok(new HateoasResponse<object>
         {
             Data = result,
-            Links =
-            [
-                new("/api/v1/leads", "list", "GET"),
-                new($"/api/v1/leads/{id}", "self", "GET"),
-            ]
+            Links = links
         });
     }
 
@@ -102,11 +113,34 @@ public class LeadsController : ControllerBase
         });
     }
 
+    [HttpGet("{id}/conversion-preview")]
+    [HasRight("leads.edit")]
+    public async Task<IActionResult> GetConversionPreview(Guid id, [FromQuery] Guid? customerId = null)
+    {
+        var result = await _sender.Send(new GetLeadConversionPreviewQuery(id, customerId));
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links =
+            [
+                new($"/api/v1/leads/{id}", "lead", "GET"),
+                new($"/api/v1/leads/{id}/convert", "convert", "POST"),
+            ]
+        });
+    }
+
     [HttpPost("{id}/convert")]
     [HasRight("leads.edit")]
     public async Task<IActionResult> ConvertToCustomer(Guid id, [FromBody] ConvertRequest request)
     {
-        var customerId = await _sender.Send(new ConvertLeadToCustomerCommand(id, request.CustomerType, request.AssignedCeiling, request.MaxPendingRcAllowed ?? 5));
+        var customerId = await _sender.Send(new ConvertLeadToCustomerCommand(
+            id,
+            request.CustomerType,
+            request.AssignedCeiling,
+            request.ExistingCustomerId,
+            request.ConfirmVehicleTransfer,
+            request.MaxPendingRcAllowed ?? 5));
+
         return Created($"/api/v1/customers/{customerId}", new HateoasResponse<object>
         {
             Data = new { customerId },
@@ -149,5 +183,5 @@ public class LeadsController : ControllerBase
 public record AssignLeadRequest(Guid? AssigneeUserId);
 public record UpdateStatusRequest(string Status);
 public record RecordCheckRequest(string CheckType, string Status, int? Score, string? Remarks);
-public record ConvertRequest(string CustomerType, decimal AssignedCeiling, int? MaxPendingRcAllowed);
+public record ConvertRequest(string? CustomerType = null, decimal? AssignedCeiling = null, Guid? ExistingCustomerId = null, bool ConfirmVehicleTransfer = false, int? MaxPendingRcAllowed = null);
 public record AddCommentRequest(string Text);

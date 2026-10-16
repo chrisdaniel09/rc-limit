@@ -37,6 +37,17 @@ interface Vehicle {
   currentRtoStatus: string;
 }
 
+interface CustomerLead {
+  leadId: string;
+  applicantName: string;
+  leadSource: string;
+  leadStatus: string;
+  createdAt: string;
+  convertedAt: string | null;
+  vehicleRegistrationNumber: string | null;
+  vehicleAction: string | null;
+}
+
 const emptyVehicleForm = {
   registrationNumber: '', chassisNumber: '', engineNumber: '',
   make: '', model: '', variant: '', yearOfMfg: '',
@@ -51,6 +62,7 @@ export default function CustomerDetailPage() {
   const navigate = useNavigate();
   const { data: customer, loading: custLoading } = useFetch<Customer>(`/api/v1/customers/${id}`);
   const { data: vehicles, loading: vehLoading, refetch } = useFetch<Vehicle[]>(`/api/v1/customers/${id}/vehicles`);
+  const { data: leads = [] } = useFetch<CustomerLead[]>(`/api/v1/customers/${id}/leads`);
 
   const [showModal, setShowModal] = useState(false);
   const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null);
@@ -217,6 +229,61 @@ export default function CustomerDetailPage() {
         </div>
       )}
       <p className="mt-2 text-xs text-gray-400">{vehicles?.length ?? 0} vehicle{(vehicles?.length ?? 0) !== 1 ? 's' : ''}</p>
+
+      {/* Lead History Section */}
+      <h3 className="text-lg font-semibold text-gray-900 mt-8 mb-4">Lead History</h3>
+      {leads.length === 0 ? (
+        <div className="text-center text-gray-500 py-8 bg-white border border-gray-200 rounded-lg">No linked leads for this customer</div>
+      ) : (
+        <div className="overflow-x-auto rounded-lg border border-gray-200">
+          <table className="min-w-full divide-y divide-gray-200">
+            <thead className="bg-gray-50">
+              <tr>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applicant Name</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Converted</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
+                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
+              </tr>
+            </thead>
+            <tbody className="bg-white divide-y divide-gray-200">
+              {leads.map((lead) => (
+                <tr key={lead.leadId} className="hover:bg-gray-50 transition-colors">
+                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{lead.applicantName}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{lead.leadSource}</td>
+                  <td className="px-4 py-3 text-sm"><Badge text={lead.leadStatus} variant={statusVariant(lead.leadStatus)} /></td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{new Date(lead.createdAt).toLocaleDateString('en-IN')}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{lead.convertedAt ? new Date(lead.convertedAt).toLocaleDateString('en-IN') : '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{lead.vehicleRegistrationNumber ?? '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">
+                    {lead.vehicleAction && (
+                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
+                        lead.vehicleAction === 'CURRENT' ? 'bg-green-100 text-green-800' :
+                        lead.vehicleAction === 'TRANSFERRED' ? 'bg-yellow-100 text-yellow-800' :
+                        'bg-gray-100 text-gray-800'
+                      }`}>
+                        {lead.vehicleAction}
+                      </span>
+                    )}
+                  </td>
+                  <td className="px-4 py-3 text-sm">
+                    <button
+                      onClick={() => navigate(`/leads/${lead.leadId}`)}
+                      className="text-indigo-600 hover:text-indigo-800 font-medium"
+                    >
+                      View
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+      <p className="mt-2 text-xs text-gray-400">{leads?.length ?? 0} lead{(leads?.length ?? 0) !== 1 ? 's' : ''}</p>
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editVehicle ? 'Edit Vehicle' : 'Add Vehicle'}>
         <form onSubmit={handleSubmit}>

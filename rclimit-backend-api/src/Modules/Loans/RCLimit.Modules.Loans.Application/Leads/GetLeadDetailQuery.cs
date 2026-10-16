@@ -4,6 +4,7 @@ using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Contracts;
 using RCLimit.Modules.Loans.Application.Abstractions;
+using RCLimit.Modules.Loans.Domain.Entities;
 
 namespace RCLimit.Modules.Loans.Application.Leads;
 
@@ -39,6 +40,9 @@ public record LeadDetailDto(
     string RcCheckStatus,
     int? CibilScorePreview,
     Guid? ConvertedCustomerId,
+    DateTime? ConvertedAt,
+    string? ConvertedCustomerName,
+    bool IsLocked,
     List<LeadCheckLogDto> CheckHistory,
     DateTime CreatedAt);
 
@@ -62,6 +66,29 @@ public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, Lea
 
         if (lead.TenantId != _tenant.TenantId)
             throw new NotFoundException("Lead", request.LeadId);
+
+        // Get conversion info if converted
+        LeadCustomer? leadConversion = null;
+        string? convertedCustomerName = null;
+        DateTime? convertedAt = null;
+
+        if (lead.ConvertedCustomerId.HasValue)
+        {
+            leadConversion = await _db.LeadCustomers
+                .AsNoTracking()
+                .FirstOrDefaultAsync(lc => lc.LeadId == request.LeadId, cancellationToken);
+
+            if (leadConversion != null)
+            {
+                convertedAt = leadConversion.LinkedAt;
+                var convertedCustomer = await _db.Customers
+                    .AsNoTracking()
+                    .FirstOrDefaultAsync(c => c.CustomerId == leadConversion.CustomerId, cancellationToken);
+                convertedCustomerName = convertedCustomer?.LegalName;
+            }
+        }
+
+        var isLocked = lead.ConvertedCustomerId.HasValue || lead.LeadStatus == "CONVERTED";
 
         var checkLogs = await _db.LeadCheckLogs
             .Where(l => l.LeadId == request.LeadId)
@@ -121,6 +148,9 @@ public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, Lea
             lead.RcCheckStatus,
             lead.CibilScorePreview,
             lead.ConvertedCustomerId,
+            convertedAt,
+            convertedCustomerName,
+            isLocked,
             checkHistoryDtos,
             lead.CreatedAt);
     }

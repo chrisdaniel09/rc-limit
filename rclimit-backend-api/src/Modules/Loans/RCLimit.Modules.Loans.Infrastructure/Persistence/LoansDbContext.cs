@@ -23,6 +23,8 @@ public class LoansDbContext : DbContext, ILoansDbContext
     public DbSet<DisbursalParticularType> DisbursalParticularTypes => Set<DisbursalParticularType>();
     public DbSet<LenderDisbursedToOption> LenderDisbursedToOptions => Set<LenderDisbursedToOption>();
     public DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses => Set<PostDisbursementDocumentStatus>();
+    public DbSet<LeadCustomer> LeadCustomers => Set<LeadCustomer>();
+    public DbSet<CustomerVehicle> CustomerVehicles => Set<CustomerVehicle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {

@@ -20,5 +20,7 @@ public interface ILoansDbContext
     DbSet<DisbursalParticularType> DisbursalParticularTypes { get; }
     DbSet<LenderDisbursedToOption> LenderDisbursedToOptions { get; }
     DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses { get; }
+    DbSet<LeadCustomer> LeadCustomers { get; }
+    DbSet<CustomerVehicle> CustomerVehicles { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -84,6 +84,21 @@ public class CustomersController : ControllerBase
         });
     }
 
+    [HttpGet("{id:guid}/leads")]
+    public async Task<IActionResult> GetLeads(Guid id)
+    {
+        var result = await _sender.Send(new GetCustomerLeadsQuery(id));
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links =
+            [
+                new($"/api/v1/customers/{id}/leads", "self", "GET"),
+                new($"/api/v1/customers/{id}", "customer", "GET"),
+            ]
+        });
+    }
+
     [HttpPost("{id:guid}/vehicles")]
     public async Task<IActionResult> AddVehicle(Guid id, [FromBody] CreateVehicleRequest request)
     {

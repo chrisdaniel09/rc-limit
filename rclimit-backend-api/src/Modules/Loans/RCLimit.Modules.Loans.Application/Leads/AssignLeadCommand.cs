@@ -26,6 +26,9 @@ public class AssignLeadCommandHandler : IRequestHandler<AssignLeadCommand>
         if (lead.TenantId != _tenant.TenantId)
             throw new NotFoundException("Lead", request.LeadId);
 
+        if (lead.ConvertedCustomerId.HasValue || lead.LeadStatus == "CONVERTED")
+            throw new BusinessRuleException("Cannot assign a converted lead.");
+
         lead.AssignedToUserId = request.AssigneeUserId;
         lead.AssignedAt = request.AssigneeUserId.HasValue ? DateTime.UtcNow : null;
         lead.UpdatedAt = DateTime.UtcNow;

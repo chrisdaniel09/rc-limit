@@ -33,6 +33,9 @@ public class RecordLeadCheckCommandHandler : IRequestHandler<RecordLeadCheckComm
         if (lead.TenantId != _tenant.TenantId)
             throw new NotFoundException("Lead", request.LeadId);
 
+        if (lead.ConvertedCustomerId.HasValue || lead.LeadStatus == "CONVERTED")
+            throw new BusinessRuleException("Cannot record a check for a converted lead.");
+
         var checkLog = new LeadCheckLog
         {
             LogId = Guid.NewGuid(),

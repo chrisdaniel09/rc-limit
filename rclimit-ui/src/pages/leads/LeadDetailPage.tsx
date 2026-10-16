@@ -25,7 +25,31 @@ interface Lead {
   rcCheckStatus: string;
   cibilScorePreview: number | null;
   convertedCustomerId: string | null;
+  convertedAt: string | null;
+  convertedCustomerName: string | null;
+  isLocked: boolean;
   createdAt: string;
+}
+
+interface CustomerMatch {
+  customerId: string;
+  legalName: string;
+  phoneNumber: string | null;
+  matchedOn: string;
+  vehicleCount: number;
+  previousLeadCount: number;
+  lastLeadAt: string | null;
+}
+
+interface VehiclePreview {
+  registrationNumber: string;
+  status: string;
+  currentOwnerName: string | null;
+}
+
+interface ConversionPreview {
+  customerMatches: CustomerMatch[];
+  vehicle: VehiclePreview;
 }
 
 interface StaffUser {
@@ -99,11 +123,18 @@ export default function LeadDetailPage() {
   const [rcRemarks, setRcRemarks] = useState('');
   const [customerType, setCustomerType] = useState('DEALER');
   const [assignedCeiling, setAssignedCeiling] = useState('');
-  const [showConvertConfirm, setShowConvertConfirm] = useState(false);
   const [showCommentsModal, setShowCommentsModal] = useState(false);
   const [automatedCibilInProgress, setAutomatedCibilInProgress] = useState(false);
   const [automatedRcInProgress, setAutomatedRcInProgress] = useState(false);
   const [checkHistory] = useState<CheckLog[]>([]);
+
+  // Conversion dialog state
+  const [showConvertDialog, setShowConvertDialog] = useState(false);
+  const [conversionMode, setConversionMode] = useState<'new' | 'existing'>('new');
+  const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
+  const [confirmVehicleTransfer, setConfirmVehicleTransfer] = useState(false);
+  const [conversionPreview, setConversionPreview] = useState<ConversionPreview | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
 
   useEffect(() => {
     if (lead) {
@@ -114,6 +145,8 @@ export default function LeadDetailPage() {
       setRcStatus(lead.rcCheckStatus);
     }
   }, [lead]);
+
+  const canEdit = hasRight('leads.edit') && !lead?.isLocked;
 
   const getLastCheckLog = (checkType: string): CheckLog | undefined => {
     return checkHistory.find(log => log.checkType === checkType);
@@ -128,6 +161,136 @@ export default function LeadDetailPage() {
       time: date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
       performer: lastCheck.performedByUserName || lastCheck.performedByUserId,
     };
+  };
+
+  const fetchConversionPreview = async (customerId?: string) => {
+    setLoadingPreview(true);
+    try {
+      const url = `/api/v1/leads/${leadId}/conversion-preview${customerId ? `?customerId=${customerId}` : ''}`;
+      const response = await apiPost<ConversionPreview>(url, {});
+      setConversionPreview(response);
+    } catch (err) {
+      console.error('Failed to fetch conversion preview:', err);
+      alert('Failed to load conversion preview');
+    } finally {
+      setLoadingPreview(false);
+    }
+  };
+
+  const handleOpenConvertDialog = async () => {
+    setShowConvertDialog(true);
+    setConversionMode('new');
+    setSelectedCustomerId(null);
+    setConfirmVehicleTransfer(false);
+    await fetchConversionPreview();
+  };
+
+  const handleSelectExistingCustomer = async (customerId: string) => {
+    setSelectedCustomerId(customerId);
+    setConfirmVehicleTransfer(false);
+    await fetchConversionPreview(customerId);
+  };
+
+  const handleConvert = async () => {
+    if (conversionMode === 'new') {
+      if (!customerType || !assignedCeiling) {
+        alert('Please enter customer type and sub-limit ceiling');
+        return;
+      }
+    } else {
+      if (!selectedCustomerId) {
+        alert('Please select a customer');
+        return;
+      }
+      if (conversionPreview?.vehicle.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) {
+        alert('Please confirm vehicle transfer');
+        return;
+      }
+    }
+
+    setLoading(true);
+    try {
+      const payload: any = {
+        maxPendingRcAllowed: 5,
+      };
+
+      if (conversionMode === 'new') {
+        payload.customerType = customerType;
+        payload.assignedCeiling = parseFloat(assignedCeiling);
+      } else {
+        payload.existingCustomerId = selectedCustomerId;
+        payload.confirmVehicleTransfer = confirmVehicleTransfer;
+      }
+
+      const response = await apiPost<{ customerId: string }>(`/api/v1/leads/${leadId}/convert`, payload);
+      navigate(`/customers/${response.customerId}`);
+    } catch (err) {
+      console.error('Failed to convert lead:', err);
+      alert('Failed to convert lead. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveChanges = async () => {
+    if (!canEdit) return;
+    setLoading(true);
+    try {
+      await apiPut(`/api/v1/leads/${lead!.leadId}/assign`, { assigneeUserId: assignedToUserId || null });
+      await apiPut(`/api/v1/leads/${lead!.leadId}/status`, { status: leadStatus });
+
+      if (cibilStatus !== lead!.cibilCheckStatus) {
+        await apiPost(`/api/v1/leads/${lead!.leadId}/checks`, {
+          checkType: 'CIBIL',
+          status: cibilStatus,
+          score: cibilScore ? parseInt(cibilScore) : null,
+          remarks: cibilRemarks,
+        });
+      }
+
+      if (rcStatus !== lead!.rcCheckStatus) {
+        await apiPost(`/api/v1/leads/${lead!.leadId}/checks`, {
+          checkType: 'RC',
+          status: rcStatus,
+          remarks: rcRemarks,
+        });
+      }
+
+      refetch();
+      alert('Changes saved successfully.');
+    } catch (err) {
+      console.error('Failed to save changes:', err);
+      alert('Failed to save changes. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleInitiateAutomatedCheck = async (checkType: 'CIBIL' | 'RC') => {
+    if (!canEdit) return;
+
+    if (checkType === 'CIBIL') {
+      setAutomatedCibilInProgress(true);
+    } else {
+      setAutomatedRcInProgress(true);
+    }
+
+    try {
+      await apiPost(`/api/v1/leads/${lead!.leadId}/checks/initiate-automated`, {
+        checkType: checkType,
+      });
+      alert(`Automated ${checkType} check initiated. Processing in background...`);
+      setTimeout(() => refetch(), 2000);
+    } catch (err) {
+      console.error(`Failed to initiate ${checkType} check:`, err);
+      alert(`Failed to initiate ${checkType} check. Please try again.`);
+    } finally {
+      if (checkType === 'CIBIL') {
+        setAutomatedCibilInProgress(false);
+      } else {
+        setAutomatedRcInProgress(false);
+      }
+    }
   };
 
   if (!lead && leadLoading) {
@@ -160,92 +323,26 @@ export default function LeadDetailPage() {
   const userOptions = users?.map(u => ({ value: u.userId, label: u.fullName || u.userId })) ?? [];
   const lastComment = comments && comments.length > 0 ? comments[0] : null;
 
-  const handleSaveChanges = async () => {
-    if (!hasRight('leads.edit')) return;
-    setLoading(true);
-    try {
-      await apiPut(`/api/v1/leads/${lead.leadId}/assign`, { assigneeUserId: assignedToUserId || null });
-      await apiPut(`/api/v1/leads/${lead.leadId}/status`, { status: leadStatus });
-
-      if (cibilStatus !== lead.cibilCheckStatus) {
-        await apiPost(`/api/v1/leads/${lead.leadId}/checks`, {
-          checkType: 'CIBIL',
-          status: cibilStatus,
-          score: cibilScore ? parseInt(cibilScore) : null,
-          remarks: cibilRemarks,
-        });
-      }
-
-      if (rcStatus !== lead.rcCheckStatus) {
-        await apiPost(`/api/v1/leads/${lead.leadId}/checks`, {
-          checkType: 'RC',
-          status: rcStatus,
-          remarks: rcRemarks,
-        });
-      }
-
-      refetch();
-      alert('Changes saved successfully.');
-    } catch (err) {
-      console.error('Failed to save changes:', err);
-      alert('Failed to save changes. Please try again.');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleInitiateAutomatedCheck = async (checkType: 'CIBIL' | 'RC') => {
-    if (!hasRight('leads.edit')) return;
-
-    if (checkType === 'CIBIL') {
-      setAutomatedCibilInProgress(true);
-    } else {
-      setAutomatedRcInProgress(true);
-    }
-
-    try {
-      await apiPost(`/api/v1/leads/${lead.leadId}/checks/initiate-automated`, {
-        checkType: checkType,
-      });
-      alert(`Automated ${checkType} check initiated. Processing in background...`);
-      setTimeout(() => refetch(), 2000);
-    } catch (err) {
-      console.error(`Failed to initiate ${checkType} check:`, err);
-      alert(`Failed to initiate ${checkType} check. Please try again.`);
-    } finally {
-      if (checkType === 'CIBIL') {
-        setAutomatedCibilInProgress(false);
-      } else {
-        setAutomatedRcInProgress(false);
-      }
-    }
-  };
-
-  const handleConvert = async () => {
-    if (!assignedCeiling) {
-      alert('Please enter a sub-limit ceiling');
-      return;
-    }
-    if (!hasRight('leads.edit')) return;
-    setLoading(true);
-    try {
-      const response = await apiPost<{ customerId: string }>(`/api/v1/leads/${lead.leadId}/convert`, {
-        customerType,
-        assignedCeiling: parseFloat(assignedCeiling),
-        maxPendingRcAllowed: 5,
-      });
-      navigate(`/customers/${response.customerId}`);
-    } catch (err) {
-      console.error('Failed to convert lead:', err);
-      alert('Failed to convert lead. Please try again.');
-      setShowConvertConfirm(false);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] bg-gray-50 overflow-hidden">
+      {/* Locked Banner */}
+      {lead.isLocked && lead.convertedCustomerId && (
+        <div className="bg-amber-50 border-b border-amber-200 px-6 py-3 flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <span className="text-lg">🔒</span>
+            <span className="text-sm text-amber-900">
+              This lead has been converted to customer <span className="font-semibold">{lead.convertedCustomerName}</span> on {new Date(lead.convertedAt!).toLocaleDateString('en-IN')}
+            </span>
+          </div>
+          <Link
+            to={`/customers/${lead.convertedCustomerId}`}
+            className="text-amber-700 hover:text-amber-900 font-medium text-sm underline"
+          >
+            View Customer →
+          </Link>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
         <div className="flex items-center justify-between mb-4">
@@ -270,7 +367,7 @@ export default function LeadDetailPage() {
             )}
             {!lead.convertedCustomerId && hasRight('leads.edit') && (
               <button
-                onClick={() => setShowConvertConfirm(true)}
+                onClick={handleOpenConvertDialog}
                 className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 transition-colors"
               >
                 Convert to Customer →
@@ -374,7 +471,7 @@ export default function LeadDetailPage() {
                   value={assignedToUserId}
                   onChange={setAssignedToUserId}
                   options={userOptions}
-                  disabled={!hasRight('leads.edit')}
+                  disabled={!canEdit}
                 />
                 {lead.assignedToUserName && (
                   <p className="text-xs text-gray-600">Currently assigned to: <span className="font-medium">{lead.assignedToUserName}</span></p>
@@ -388,7 +485,7 @@ export default function LeadDetailPage() {
                   value={leadStatus}
                   onChange={setLeadStatus}
                   options={LEAD_STATUSES}
-                  disabled={!hasRight('leads.edit') || !!lead.convertedCustomerId}
+                  disabled={!canEdit}
                 />
               </div>
 
@@ -435,7 +532,7 @@ export default function LeadDetailPage() {
                     value={cibilStatus}
                     onChange={setCibilStatus}
                     options={CHECK_STATUSES}
-                    disabled={!hasRight('leads.edit')}
+                    disabled={!canEdit}
                   />
                   <FormField
                     label="Score"
@@ -443,7 +540,7 @@ export default function LeadDetailPage() {
                     onChange={setCibilScore}
                     type="number"
                     placeholder="750"
-                    disabled={!hasRight('leads.edit')}
+                    disabled={!canEdit}
                   />
                 </div>
                 <div>
@@ -451,13 +548,13 @@ export default function LeadDetailPage() {
                   <textarea
                     value={cibilRemarks}
                     onChange={(e) => setCibilRemarks(e.target.value)}
-                    disabled={!hasRight('leads.edit')}
+                    disabled={!canEdit}
                     placeholder="Credit history notes..."
                     rows={2}
                     className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs disabled:bg-gray-100 disabled:text-gray-500"
                   />
                 </div>
-                {hasRight('leads.edit') && (
+                {canEdit && (
                   <button
                     onClick={() => handleInitiateAutomatedCheck('CIBIL')}
                     disabled={automatedCibilInProgress}
@@ -487,20 +584,20 @@ export default function LeadDetailPage() {
                   value={rcStatus}
                   onChange={setRcStatus}
                   options={CHECK_STATUSES}
-                  disabled={!hasRight('leads.edit')}
+                  disabled={!canEdit}
                 />
                 <div>
                   <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
                   <textarea
                     value={rcRemarks}
                     onChange={(e) => setRcRemarks(e.target.value)}
-                    disabled={!hasRight('leads.edit')}
+                    disabled={!canEdit}
                     placeholder="Vehicle registration notes..."
                     rows={2}
                     className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs disabled:bg-gray-100 disabled:text-gray-500"
                   />
                 </div>
-                {hasRight('leads.edit') && (
+                {canEdit && (
                   <button
                     onClick={() => handleInitiateAutomatedCheck('RC')}
                     disabled={automatedRcInProgress}
@@ -516,7 +613,7 @@ export default function LeadDetailPage() {
       </div>
 
       {/* Fixed Footer */}
-      {!lead.convertedCustomerId && hasRight('leads.edit') && (
+      {canEdit && (
         <div className="border-t border-gray-200 bg-white px-6 py-3 flex-shrink-0">
           <div className="flex justify-between items-center">
             <p className="text-sm text-gray-600">Any changes to assignment, status, and verification checks will be saved</p>
@@ -555,50 +652,216 @@ export default function LeadDetailPage() {
       )}
 
       {/* Convert to Customer Modal */}
-      {showConvertConfirm && (
+      {showConvertDialog && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-          <div className="bg-white rounded-lg shadow-xl max-w-md w-full">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-hidden flex flex-col">
             <div className="border-b border-gray-200 px-6 py-4 bg-gray-50 flex justify-between items-center">
-              <h2 className="text-lg font-semibold text-gray-900">Convert to Customer</h2>
+              <h2 className="text-lg font-semibold text-gray-900">Convert Lead to Customer</h2>
               <button
-                onClick={() => setShowConvertConfirm(false)}
+                onClick={() => setShowConvertDialog(false)}
                 className="text-gray-400 hover:text-gray-600 text-2xl font-light"
               >
                 ×
               </button>
             </div>
-            <div className="p-6 space-y-4">
-              <FormField
-                label="Customer Type"
-                value={customerType}
-                onChange={setCustomerType}
-                options={[
-                  { value: 'DEALER', label: 'Dealer' },
-                  { value: 'INDIVIDUAL', label: 'Individual' },
-                ]}
-              />
-              <FormField
-                label="Sub-Limit Ceiling (₹)"
-                value={assignedCeiling}
-                onChange={setAssignedCeiling}
-                type="number"
-                placeholder="e.g. 500000"
-              />
-              <div className="flex gap-3 pt-4">
-                <button
-                  onClick={() => setShowConvertConfirm(false)}
-                  className="flex-1 px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-50 transition-colors"
-                >
-                  Cancel
-                </button>
-                <button
-                  onClick={handleConvert}
-                  disabled={loading || !assignedCeiling}
-                  className="flex-1 px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
-                >
-                  {loading ? 'Converting...' : 'Convert'}
-                </button>
+
+            <div className="flex-1 overflow-y-auto p-6 space-y-6">
+              {/* Mode Selection */}
+              <div className="space-y-3">
+                <label className="block text-sm font-semibold text-gray-900">Select Option</label>
+                <div className="space-y-2">
+                  <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50" style={{ borderColor: conversionMode === 'new' ? '#4f46e5' : '#d1d5db', backgroundColor: conversionMode === 'new' ? '#eef2ff' : 'transparent' }}>
+                    <input
+                      type="radio"
+                      name="conversionMode"
+                      value="new"
+                      checked={conversionMode === 'new'}
+                      onChange={(e) => {
+                        setConversionMode(e.target.value as 'new' | 'existing');
+                        setSelectedCustomerId(null);
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <p className="font-medium text-gray-900">Create New Customer</p>
+                      <p className="text-xs text-gray-600">Set customer type and sub-limit ceiling</p>
+                    </div>
+                  </label>
+
+                  <label className="flex items-center gap-3 p-3 border rounded-lg cursor-pointer hover:bg-gray-50" style={{ borderColor: conversionMode === 'existing' ? '#4f46e5' : '#d1d5db', backgroundColor: conversionMode === 'existing' ? '#eef2ff' : 'transparent' }}>
+                    <input
+                      type="radio"
+                      name="conversionMode"
+                      value="existing"
+                      checked={conversionMode === 'existing'}
+                      onChange={(e) => {
+                        setConversionMode(e.target.value as 'new' | 'existing');
+                        setSelectedCustomerId(null);
+                        setConversionPreview(null);
+                      }}
+                      className="w-4 h-4"
+                    />
+                    <div>
+                      <p className="font-medium text-gray-900">Link to Existing Customer</p>
+                      <p className="text-xs text-gray-600">Link to a customer by phone or name match</p>
+                    </div>
+                  </label>
+                </div>
               </div>
+
+              {/* New Customer Mode */}
+              {conversionMode === 'new' && (
+                <div className="space-y-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <FormField
+                    label="Customer Type"
+                    value={customerType}
+                    onChange={setCustomerType}
+                    options={[
+                      { value: 'DEALER', label: 'Dealer' },
+                      { value: 'INDIVIDUAL', label: 'Individual' },
+                    ]}
+                  />
+                  <FormField
+                    label="Sub-Limit Ceiling (₹)"
+                    value={assignedCeiling}
+                    onChange={setAssignedCeiling}
+                    type="number"
+                    placeholder="e.g. 500000"
+                  />
+                </div>
+              )}
+
+              {/* Existing Customer Mode */}
+              {conversionMode === 'existing' && (
+                <div className="space-y-4">
+                  {loadingPreview && (
+                    <div className="text-center py-8">
+                      <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-indigo-600"></div>
+                      <p className="text-sm text-gray-600 mt-2">Loading customer matches...</p>
+                    </div>
+                  )}
+
+                  {!loadingPreview && conversionPreview && (
+                    <>
+                      {/* Customer Matches */}
+                      <div>
+                        <p className="text-sm font-semibold text-gray-900 mb-3">Available Customers</p>
+                        {conversionPreview.customerMatches.length > 0 ? (
+                          <div className="space-y-2 max-h-48 overflow-y-auto">
+                            {conversionPreview.customerMatches.map((match) => (
+                              <button
+                                key={match.customerId}
+                                onClick={() => handleSelectExistingCustomer(match.customerId)}
+                                className={`w-full text-left p-3 rounded-lg border transition-all ${
+                                  selectedCustomerId === match.customerId
+                                    ? 'border-indigo-500 bg-indigo-50'
+                                    : 'border-gray-200 bg-white hover:border-indigo-300'
+                                }`}
+                              >
+                                <div className="flex items-center justify-between">
+                                  <div className="flex-1">
+                                    <p className="font-medium text-gray-900">{match.legalName}</p>
+                                    <p className="text-xs text-gray-600">{match.phoneNumber}</p>
+                                  </div>
+                                  <div className="text-right">
+                                    <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
+                                      match.matchedOn === 'PHONE' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
+                                    }`}>
+                                      {match.matchedOn}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="flex gap-4 mt-2 text-xs text-gray-600">
+                                  <span>{match.vehicleCount} vehicles</span>
+                                  <span>{match.previousLeadCount} previous leads</span>
+                                  {match.lastLeadAt && (
+                                    <span>Last: {new Date(match.lastLeadAt).toLocaleDateString('en-IN')}</span>
+                                  )}
+                                </div>
+                              </button>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-sm text-gray-600 py-4">No matching customers found</p>
+                        )}
+                      </div>
+
+                      {/* Vehicle Preview */}
+                      {selectedCustomerId && conversionPreview.vehicle && (
+                        <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <h4 className="font-semibold text-gray-900">Vehicle: {conversionPreview.vehicle.registrationNumber}</h4>
+                            <span className={`text-xs font-medium px-2 py-1 rounded ${
+                              conversionPreview.vehicle.status === 'NEW' ? 'bg-green-100 text-green-800' :
+                              conversionPreview.vehicle.status === 'SAME_OWNER' ? 'bg-blue-100 text-blue-800' :
+                              conversionPreview.vehicle.status === 'OWNED_BY_OTHER' ? 'bg-amber-100 text-amber-800' :
+                              'bg-red-100 text-red-800'
+                            }`}>
+                              {conversionPreview.vehicle.status}
+                            </span>
+                          </div>
+
+                          {conversionPreview.vehicle.status === 'NEW' && (
+                            <p className="text-sm text-gray-700">This vehicle will be registered to the selected customer.</p>
+                          )}
+
+                          {conversionPreview.vehicle.status === 'SAME_OWNER' && (
+                            <p className="text-sm text-gray-700">This vehicle is already owned by the selected customer.</p>
+                          )}
+
+                          {conversionPreview.vehicle.status === 'OWNED_BY_OTHER' && (
+                            <div className="space-y-3">
+                              <p className="text-sm text-gray-700">
+                                This vehicle is currently owned by <span className="font-semibold">{conversionPreview.vehicle.currentOwnerName}</span>.
+                              </p>
+                              <label className="flex items-center gap-2">
+                                <input
+                                  type="checkbox"
+                                  checked={confirmVehicleTransfer}
+                                  onChange={(e) => setConfirmVehicleTransfer(e.target.checked)}
+                                  className="w-4 h-4"
+                                />
+                                <span className="text-sm text-gray-700">
+                                  I confirm transferring this vehicle to the selected customer
+                                </span>
+                              </label>
+                            </div>
+                          )}
+
+                          {conversionPreview.vehicle.status === 'BLOCKED' && (
+                            <div className="bg-red-100 border border-red-300 rounded p-3">
+                              <p className="text-sm text-red-800 font-medium">⚠️ Vehicle Transfer Blocked</p>
+                              <p className="text-sm text-red-700 mt-1">This vehicle has an open loan. Transfer is not permitted.</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer Actions */}
+            <div className="border-t border-gray-200 bg-gray-50 px-6 py-4 flex gap-3 justify-end">
+              <button
+                onClick={() => setShowConvertDialog(false)}
+                className="px-4 py-2 rounded-lg border border-gray-300 text-gray-700 text-sm font-medium hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConvert}
+                disabled={
+                  loading ||
+                  loadingPreview ||
+                  (conversionMode === 'new' && (!customerType || !assignedCeiling)) ||
+                  (conversionMode === 'existing' && (!selectedCustomerId || (conversionPreview?.vehicle.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) || conversionPreview?.vehicle.status === 'BLOCKED'))
+                }
+                className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
+              >
+                {loading ? 'Converting...' : 'Convert'}
+              </button>
             </div>
           </div>
         </div>

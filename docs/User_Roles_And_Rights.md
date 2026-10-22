@@ -20,6 +20,13 @@ Rights follow a `module.action` code pattern:
 - **users**: `users.manage` (assign/remove roles)
 - **roles**: `roles.manage` (create, edit, delete roles and assign rights)
 - **rights**: `rights.manage` (manage the rights catalogue)
+- **dashboard**: `dashboard.loan_stats` (loan summary cards), `dashboard.rc_aging` (RC aging alerts), `dashboard.my_leads` (the user's assigned leads). Each dashboard widget is gated by its own right; see `rclimit-db/seed/002_dashboard_rights.sql`. These are granted to SuperAdmin only by default; admins grant the rest per role.
+
+#### Adding a dashboard widget
+1. Add a `dashboard.<name>` right in a new idempotent script in `rclimit-db/seed/` (follow `rclimit-db/seed/002_dashboard_rights.sql`).
+2. Add a query and a `GET /api/v1/dashboard/<name>` endpoint with `[HasRight("dashboard.<name>")]` in `DashboardController`.
+3. Create a self-contained component in `rclimit-ui/src/pages/dashboard/widgets/`, wrapped in `WidgetCard` (which provides the refresh button and error state).
+4. Append an entry to `dashboardWidgets` in `widgets/registry.ts`. `DashboardPage` needs no changes.
 
 A user with `loans.view` can GET loan endpoints; a user without it receives 403 Forbidden.
 
@@ -281,7 +288,7 @@ Idempotent SQL (use `IF NOT EXISTS` and `CREATE IF NOT EXISTS`):
 2. Seed rights catalogue (all module.action pairs listed above).
 3. Create a SuperAdmin role per tenant (seeded tenants).
 
-### `rclimit-db/seed/seed_data.sql`
+### `rclimit-db/seed/001_seed_data.sql`
 Add to the existing admin user insert:
 - A SuperAdmin role insert (or reference the one created in 016).
 - A `user_roles` row linking the admin user to SuperAdmin.
@@ -289,7 +296,6 @@ Add to the existing admin user insert:
 ### Running
 ```powershell
 ./rclimit-db/run_migrations.ps1
-./rclimit-db/seed_data.sql
 ```
 
 The migration and seed are idempotent: re-running is safe.

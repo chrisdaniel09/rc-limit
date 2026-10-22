@@ -40,16 +40,19 @@ foreach ($migration in $migrations) {
     }
 }
 
-# Run seed data
+# Run seed files in order (numeric prefix, e.g. 001_seed_data.sql, 002_...)
 Write-Host ""
 Write-Host "Applying seed data..." -ForegroundColor Yellow
-$seedFile = Join-Path $PSScriptRoot "seed\seed_data.sql"
-if (Test-Path $seedFile) {
-    psql -h $DbHost -p $Port -U $User -d $Database -f $seedFile -q 2>&1 | Out-Null
+$seedDir = Join-Path $PSScriptRoot "seed"
+$seeds = Get-ChildItem -Path $seedDir -Filter "*.sql" | Sort-Object Name
+
+foreach ($seed in $seeds) {
+    Write-Host "  Applying: $($seed.Name)..." -NoNewline
+    psql -h $DbHost -p $Port -U $User -d $Database -f $seed.FullName -q 2>&1 | Out-Null
     if ($LASTEXITCODE -eq 0) {
-        Write-Host "  Seed data applied successfully." -ForegroundColor Green
+        Write-Host " OK" -ForegroundColor Green
     } else {
-        Write-Host "  Seed data may have partially applied (duplicates are OK on re-run)." -ForegroundColor Yellow
+        Write-Host " may have partially applied (duplicates are OK on re-run)" -ForegroundColor Yellow
     }
 }
 

@@ -19,26 +19,41 @@ public class DashboardController : ControllerBase
         _sender = sender;
     }
 
-    [HttpGet]
-    [HasRight("loans.view")]
-    public async Task<IActionResult> Get()
+    [HttpGet("summary")]
+    [HasRight("dashboard.loan_stats")]
+    public async Task<IActionResult> GetSummary()
     {
-        var result = await _sender.Send(new GetDashboardQuery());
+        var result = await _sender.Send(new GetDashboardSummaryQuery());
         return Ok(new HateoasResponse<object>
         {
             Data = result,
             Links =
             [
-                new("/api/v1/dashboard", "self", "GET"),
+                new("/api/v1/dashboard/summary", "self", "GET"),
                 new("/api/v1/loans", "loans", "GET"),
                 new("/api/v1/customers", "customers", "GET"),
-                new("/api/v1/lenders", "lenders", "GET"),
-                new("/api/v1/accounting/balance-sheet", "balance-sheet", "GET"),
+            ]
+        });
+    }
+
+    [HttpGet("rc-aging")]
+    [HasRight("dashboard.rc_aging")]
+    public async Task<IActionResult> GetRcAging()
+    {
+        var result = await _sender.Send(new GetRcAgingAlertsQuery());
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links =
+            [
+                new("/api/v1/dashboard/rc-aging", "self", "GET"),
+                new("/api/v1/loans", "loans", "GET"),
             ]
         });
     }
 
     [HttpGet("me")]
+    [HasRight("dashboard.my_leads")]
     public async Task<IActionResult> GetMine()
     {
         var result = await _sender.Send(new GetMyDashboardQuery());
@@ -49,7 +64,6 @@ public class DashboardController : ControllerBase
             [
                 new("/api/v1/dashboard/me", "self", "GET"),
                 new("/api/v1/leads?assignedToMe=true", "my-leads", "GET"),
-                new("/api/v1/dashboard", "dashboard", "GET"),
             ]
         });
     }

@@ -6,7 +6,7 @@ using RCLimit.Modules.Loans.Application.Abstractions;
 
 namespace RCLimit.Modules.Loans.Application.Leads;
 
-public record GetLeadsQuery : IRequest<List<LeadDto>>;
+public record GetLeadsQuery(bool AssignedToMe = false) : IRequest<List<LeadDto>>;
 
 public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>>
 {
@@ -25,6 +25,7 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
     {
         var leads = await _db.Leads
             .Where(l => l.TenantId == _tenant.TenantId)
+            .Where(l => !request.AssignedToMe || l.AssignedToUserId == _tenant.UserId)
             .OrderByDescending(l => l.CreatedAt)
             .ToListAsync(cancellationToken);
 

@@ -1,44 +1,15 @@
-import { createContext, useContext, useReducer, useEffect, type ReactNode } from 'react';
+import { useReducer, useEffect, type ReactNode } from 'react';
 import { loadConfig, getApiBaseUrl } from '../config';
-
-function resolveUrl(url: string): string {
-  return getApiBaseUrl() + url;
-}
-
-interface Role {
-  roleId: string;
-  code: string;
-  name: string;
-}
-
-interface User {
-  userId: string;
-  email: string;
-  fullName: string;
-  tenantId: string;
-  roles?: Role[];
-  rightCodes?: string[];
-}
-
-interface AuthState {
-  token: string | null;
-  user: User | null;
-  isAuthenticated: boolean;
-}
+import { AuthContext, type AuthState, type User } from './authContextValue';
 
 type AuthAction =
   | { type: 'LOGIN'; payload: { token: string; user: User } }
   | { type: 'LOGOUT' }
   | { type: 'SET_USER'; payload: User };
 
-interface AuthContextValue extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string, phoneNumber: string) => Promise<void>;
-  logout: () => Promise<void>;
-  hasRight: (rightCode: string) => boolean;
+function resolveUrl(url: string): string {
+  return getApiBaseUrl() + url;
 }
-
-const AuthContext = createContext<AuthContextValue | null>(null);
 
 function authReducer(state: AuthState, action: AuthAction): AuthState {
   switch (action.type) {
@@ -141,10 +112,4 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       {children}
     </AuthContext.Provider>
   );
-}
-
-export function useAuth(): AuthContextValue {
-  const ctx = useContext(AuthContext);
-  if (!ctx) throw new Error('useAuth must be used within AuthProvider');
-  return ctx;
 }

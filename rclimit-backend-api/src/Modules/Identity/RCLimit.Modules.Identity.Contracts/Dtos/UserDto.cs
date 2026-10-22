@@ -5,5 +5,5 @@ public record UserDto(
     Guid TenantId,
     string? Email,
     string? FullName,
-    List<RoleDto> Roles = null,
-    List<string> RightCodes = null);
+    List<RoleDto>? Roles = null,
+    List<string>? RightCodes = null);

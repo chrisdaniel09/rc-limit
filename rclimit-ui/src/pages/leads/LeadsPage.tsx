@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPost } from '../../api/client';
 import DataTable, { type Column } from '../../components/DataTable';
-import Badge, { statusVariant } from '../../components/Badge';
+import Badge from '../../components/Badge';
+import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
 
@@ -52,7 +53,10 @@ const formatDate = (dateStr: string) => {
 
 export default function LeadsPage() {
   const navigate = useNavigate();
-  const { data, loading, refetch } = useFetch<Lead[]>('/api/v1/leads');
+  const [scope, setScope] = useState<'all' | 'mine'>('all');
+  const { data, loading, refetch } = useFetch<Lead[]>(
+    scope === 'mine' ? '/api/v1/leads?assignedToMe=true' : '/api/v1/leads',
+  );
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
@@ -109,7 +113,23 @@ export default function LeadsPage() {
   return (
     <div>
       <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">Leads</h2>
+        <div className="flex items-center gap-4">
+          <h2 className="text-lg font-semibold text-gray-900">Leads</h2>
+          <div className="inline-flex rounded-md border border-gray-300 bg-white p-0.5">
+            {([['all', 'All Leads'], ['mine', 'My Leads']] as const).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setScope(value)}
+                className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
+                  scope === value ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
         <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
           Add Lead
         </button>

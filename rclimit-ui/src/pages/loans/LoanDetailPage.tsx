@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useParams } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPost } from '../../api/client';
-import Badge, { statusVariant } from '../../components/Badge';
+import Badge from '../../components/Badge';
+import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
 

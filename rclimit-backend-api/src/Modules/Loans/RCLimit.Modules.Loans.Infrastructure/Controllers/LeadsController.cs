@@ -22,9 +22,9 @@ public class LeadsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll([FromQuery] bool assignedToMe = false)
     {
-        var result = await _sender.Send(new GetLeadsQuery());
+        var result = await _sender.Send(new GetLeadsQuery(assignedToMe));
         return Ok(new HateoasResponse<object>
         {
             Data = result,

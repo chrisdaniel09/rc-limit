@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPut, apiPost, apiGet } from '../../api/client';
-import { useAuth } from '../../contexts/AuthContext';
+import { useAuth } from '../../hooks/useAuth';
 import FormField from '../../components/FormField';
 import CommentsPanel from '../../components/CommentsPanel';
 
@@ -136,15 +136,16 @@ export default function LeadDetailPage() {
   const [conversionPreview, setConversionPreview] = useState<ConversionPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
 
-  useEffect(() => {
-    if (lead) {
-      setAssignedToUserId(lead.assignedToUserId ?? '');
-      setLeadStatus(lead.leadStatus);
-      setCibilStatus(lead.cibilCheckStatus);
-      setCibilScore(lead.cibilScorePreview?.toString() ?? '');
-      setRcStatus(lead.rcCheckStatus);
-    }
-  }, [lead]);
+  // Sync form state when a freshly fetched lead arrives (adjusting state during render, not in an effect)
+  const [syncedLead, setSyncedLead] = useState<Lead | null>(null);
+  if (lead && lead !== syncedLead) {
+    setSyncedLead(lead);
+    setAssignedToUserId(lead.assignedToUserId ?? '');
+    setLeadStatus(lead.leadStatus);
+    setCibilStatus(lead.cibilCheckStatus);
+    setCibilScore(lead.cibilScorePreview?.toString() ?? '');
+    setRcStatus(lead.rcCheckStatus);
+  }
 
   const canEdit = hasRight('leads.edit') && !lead?.isLocked;
 

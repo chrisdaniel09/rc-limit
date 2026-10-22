@@ -136,7 +136,7 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
             {
                 VehicleId = Guid.NewGuid(),
                 TenantId = _tenant.TenantId,
-                RegistrationNumber = lead.VehicleRegistrationNumber,
+                RegistrationNumber = lead.VehicleRegistrationNumber!,
                 OwnerCustomerId = customerId
             };
 

@@ -23,7 +23,6 @@ export interface AuthState {
 
 export interface AuthContextValue extends AuthState {
   login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string, phoneNumber: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRight: (rightCode: string) => boolean;
 }

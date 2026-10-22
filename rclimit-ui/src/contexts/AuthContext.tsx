@@ -64,24 +64,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     dispatch({ type: 'LOGIN', payload: { token: data.accessToken, user: data.user } });
   };
 
-  const register = async (email: string, password: string, fullName: string, phoneNumber: string) => {
-    const res = await fetch(resolveUrl('/api/v1/auth/register'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password, fullName, phoneNumber }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || 'Registration failed');
-    }
-    const raw = await res.json();
-    const data = raw.data ?? raw;
-    localStorage.setItem('rclimit_token', data.accessToken);
-    localStorage.setItem('rclimit_refresh', data.refreshToken);
-    localStorage.setItem('rclimit_user', JSON.stringify(data.user));
-    dispatch({ type: 'LOGIN', payload: { token: data.accessToken, user: data.user } });
-  };
-
   const logout = async () => {
     const refreshToken = localStorage.getItem('rclimit_refresh');
     try {
@@ -108,7 +90,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ ...state, login, register, logout, hasRight }}>
+    <AuthContext.Provider value={{ ...state, login, logout, hasRight }}>
       {children}
     </AuthContext.Provider>
   );

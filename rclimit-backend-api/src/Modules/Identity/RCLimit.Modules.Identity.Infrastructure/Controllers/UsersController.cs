@@ -51,5 +51,41 @@ public class UsersController(ISender sender) : ControllerBase
         return Ok(user);
     }
 
+    [HttpPost]
+    [HasRight("users.manage")]
+    public async Task<IActionResult> Create([FromBody] CreateUserRequest request, CancellationToken cancellationToken)
+    {
+        var user = await sender.Send(new CreateUserCommand(
+            request.Email,
+            request.FullName,
+            request.PhoneNumber,
+            request.Password,
+            request.RoleIds ?? []), cancellationToken);
+
+        return Created($"/api/v1/users/{user.UserId}", new HateoasResponse<object>
+        {
+            Data = user,
+            Links =
+            [
+                new("/api/v1/users", "list", "GET"),
+                new($"/api/v1/users/{user.UserId}/password", "reset-password", "PUT"),
+            ]
+        });
+    }
+
+    [HttpPut("{id:guid}/password")]
+    [HasRight("users.manage")]
+    public async Task<IActionResult> ResetPassword(Guid id, [FromBody] ResetPasswordRequest request, CancellationToken cancellationToken)
+    {
+        await sender.Send(new ResetUserPasswordCommand(id, request.NewPassword), cancellationToken);
+        return Ok(new HateoasResponse<object>
+        {
+            Data = new { message = "Password reset successfully. The user has been signed out of all sessions." },
+            Links = [new("/api/v1/users", "list", "GET")]
+        });
+    }
+
     public record SetUserRolesRequest(List<Guid> RoleIds);
+    public record CreateUserRequest(string Email, string FullName, string? PhoneNumber, string Password, List<Guid>? RoleIds);
+    public record ResetPasswordRequest(string NewPassword);
 }

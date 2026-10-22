@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
+using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.Modules.Identity.Application.Commands;
 using RCLimit.Modules.Identity.Application.Queries;
 
@@ -20,6 +21,8 @@ public class AuthController : ControllerBase
         _sender = sender;
     }
 
+    [Authorize]
+    [HasRight("users.manage")]
     [HttpPost("register")]
     public async Task<IActionResult> Register([FromBody] RegisterRequest request, CancellationToken ct)
     {

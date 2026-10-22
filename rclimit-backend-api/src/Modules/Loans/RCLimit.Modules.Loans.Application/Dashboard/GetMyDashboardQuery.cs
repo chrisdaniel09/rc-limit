@@ -31,12 +31,18 @@ public class GetMyDashboardQueryHandler : IRequestHandler<GetMyDashboardQuery, M
         var tenantId = _tenant.TenantId;
         var userId = _tenant.UserId;
 
-        var byStatus = await _db.Leads
+        // Group in the database with an anonymous projection, then map to the DTO in memory.
+        // Projecting straight into a record constructor inside GroupBy is not translatable by EF Core.
+        var counts = await _db.Leads
             .Where(l => l.TenantId == tenantId && l.AssignedToUserId == userId)
             .GroupBy(l => l.LeadStatus)
-            .Select(g => new LeadStatusCountDto(g.Key, g.Count()))
-            .OrderBy(s => s.Status)
+            .Select(g => new { Status = g.Key, Count = g.Count() })
             .ToListAsync(cancellationToken);
+
+        var byStatus = counts
+            .OrderBy(c => c.Status)
+            .Select(c => new LeadStatusCountDto(c.Status, c.Count))
+            .ToList();
 
         var totalAssigned = byStatus.Sum(s => s.Count);
         var converted = byStatus

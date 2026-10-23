@@ -8,6 +8,10 @@ public class TenantSettings
     public bool AllowWhatsappIntake { get; set; } = true;
     public string? CustomVahanApiKey { get; set; }
     public string? CustomCibilGatewayCredentials { get; set; }
+    public int? AccessTokenMinutes { get; set; }
+    public int? IdleTimeoutDays { get; set; }
+    public int? AbsoluteTimeoutDays { get; set; }
+    public int? MaxSessionsPerUser { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Tenant Tenant { get; set; } = null!;

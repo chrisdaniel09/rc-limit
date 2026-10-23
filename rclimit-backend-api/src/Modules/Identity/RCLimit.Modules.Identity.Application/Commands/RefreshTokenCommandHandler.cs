@@ -1,113 +1,92 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Contracts.Auth;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Dtos;
-using RCLimit.Modules.Identity.Contracts.Dtos;
+using RCLimit.Modules.Identity.Application.Sessions;
 using RCLimit.Modules.Identity.Domain.Entities;
 
 namespace RCLimit.Modules.Identity.Application.Commands;
 
-public class RefreshTokenCommandHandler : IRequestHandler<RefreshTokenCommand, AuthResponse>
+/// <summary>
+/// Rotates a refresh token (spec section 6.3). Classification:
+/// active → rotate; rotated within the grace window → 409 (benign concurrent refresh);
+/// any other revoked token → reuse, so the whole family is revoked; expired or inactive → family revoked.
+/// </summary>
+public class RefreshTokenCommandHandler(
+    IIdentityDbContext db,
+    SessionService sessions,
+    ITenantContext tenantContext,
+    IOptions<AuthOptions> options,
+    ILogger<RefreshTokenCommandHandler> logger) : IRequestHandler<RefreshTokenCommand, AuthResponse>
 {
-    private readonly IIdentityDbContext _db;
-    private readonly IJwtTokenService _jwtService;
-
-    public RefreshTokenCommandHandler(IIdentityDbContext db, IJwtTokenService jwtService)
-    {
-        _db = db;
-        _jwtService = jwtService;
-    }
-
     public async Task<AuthResponse> Handle(RefreshTokenCommand request, CancellationToken cancellationToken)
     {
-        var tokenHash = ComputeTokenHash(request.RefreshToken);
+        var now = DateTime.UtcNow;
+        var hash = RefreshTokens.Hash(request.RefreshToken);
 
-        var existingToken = await _db.RefreshTokens
+        var row = await db.RefreshTokens
             .Include(r => r.User)
-            .FirstOrDefaultAsync(r => r.TokenHash == tokenHash, cancellationToken)
-            ?? throw new InvalidOperationException("Invalid refresh token.");
+            .FirstOrDefaultAsync(r => r.TokenHash == hash, cancellationToken)
+            ?? throw Invalid();
 
-        if (existingToken.IsRevoked)
+        if (row.TenantId != tenantContext.TenantId)
         {
-            // Possible token reuse detected — revoke all tokens for this user
-            var allTokens = await _db.RefreshTokens
-                .Where(r => r.UserId == existingToken.UserId && !r.IsRevoked)
-                .ToListAsync(cancellationToken);
-
-            foreach (var t in allTokens)
-                t.Revoke();
-
-            await _db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException("Token reuse detected. All sessions revoked.");
+            logger.LogWarning("auth.refresh.failure reason={Reason} tenant={TenantId} ip={IpAddress}",
+                "tenant_mismatch", tenantContext.TenantId, request.IpAddress);
+            throw Invalid();
         }
 
-        if (existingToken.IsExpired)
+        if (row.IsRevoked)
         {
-            existingToken.Revoke();
-            await _db.SaveChangesAsync(cancellationToken);
-            throw new InvalidOperationException("Refresh token has expired.");
+            var grace = TimeSpan.FromSeconds(options.Value.Session.ReuseGraceSeconds);
+            if (row.RevokedReason == RefreshRevocationReasons.Rotated && row.RevokedAt >= now - grace)
+            {
+                logger.LogInformation("auth.refresh.conflict tenant={TenantId} user={UserId}",
+                    row.TenantId, row.UserId);
+                throw new ConflictException("Session refresh already in progress. Retry.", "REFRESH_IN_PROGRESS");
+            }
+
+            await sessions.RevokeFamilyAsync(row.FamilyId, RefreshRevocationReasons.ReuseDetected, cancellationToken);
+            logger.LogWarning(
+                "auth.refresh.reuse_detected tenant={TenantId} user={UserId} family={FamilyId} reason={RevokedReason} ip={IpAddress}",
+                row.TenantId, row.UserId, row.FamilyId, row.RevokedReason, request.IpAddress);
+            throw Invalid();
         }
 
-        // Rotate: revoke old, issue new
-        existingToken.Revoke();
+        if (!row.User.IsActive)
+        {
+            await sessions.RevokeFamilyAsync(row.FamilyId, RefreshRevocationReasons.Deactivated, cancellationToken);
+            logger.LogWarning("auth.refresh.failure reason={Reason} tenant={TenantId} user={UserId}",
+                "inactive", row.TenantId, row.UserId);
+            throw Invalid();
+        }
 
-        var user = existingToken.User;
+        if (row.IsExpired(now))
+        {
+            await sessions.RevokeFamilyAsync(row.FamilyId, RefreshRevocationReasons.Expired, cancellationToken);
+            logger.LogInformation("auth.refresh.failure reason={Reason} tenant={TenantId} user={UserId}",
+                "expired", row.TenantId, row.UserId);
+            throw Invalid();
+        }
 
-        var userRoleIds = await _db.UserRoles
-            .Where(ur => ur.UserId == user.UserId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(cancellationToken);
+        var session = await sessions.RotateAsync(row, cancellationToken);
 
-        var roles = await _db.Roles
-            .Where(r => userRoleIds.Contains(r.RoleId))
-            .ToListAsync(cancellationToken);
-
-        var roleNames = roles.Select(r => r.Name).ToList();
-
-        var roleRights = await _db.RoleRights
-            .Where(rr => userRoleIds.Contains(rr.RoleId))
-            .ToListAsync(cancellationToken);
-
-        var rightIds = roleRights.Select(rr => rr.RightId).Distinct().ToList();
-        var rights = await _db.Rights
-            .Where(r => rightIds.Contains(r.RightId))
-            .ToListAsync(cancellationToken);
-
-        var rightCodes = rights.Select(r => r.Code).ToList();
-
-        var newAccessToken = _jwtService.GenerateAccessToken(user, roleNames, rightCodes);
-        var newRefreshTokenValue = _jwtService.GenerateRefreshToken();
-        var expiresAt = DateTime.UtcNow.AddDays(7);
-
-        var newRefreshToken = RefreshToken.Create(
-            user.UserId,
-            ComputeTokenHash(newRefreshTokenValue),
-            expiresAt);
-
-        _db.RefreshTokens.Add(newRefreshToken);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        var userRoleDtos = roles.Select(r => new RoleDto(
-            r.RoleId,
-            r.Code,
-            r.Name,
-            r.Description,
-            r.IsSystem,
-            r.IsActive,
-            new List<RightDto>()
-        )).ToList();
+        logger.LogInformation("auth.refresh.success tenant={TenantId} user={UserId} family={FamilyId} ip={IpAddress}",
+            row.TenantId, row.UserId, row.FamilyId, request.IpAddress);
 
         return new AuthResponse(
-            newAccessToken,
-            newRefreshTokenValue,
-            DateTime.UtcNow.AddMinutes(15),
-            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName, userRoleDtos, rightCodes));
+            session.AccessToken,
+            session.RefreshToken,
+            session.AccessExpiresAt,
+            session.User,
+            session.RefreshExpiresAt);
     }
 
-    private static string ComputeTokenHash(string token)
-    {
-        var bytes = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(token));
-        return Convert.ToBase64String(bytes);
-    }
+    private static AuthenticationFailedException Invalid() =>
+        new(SessionService.SessionInvalidMessage, "AUTH_SESSION_INVALID");
 }

@@ -22,6 +22,8 @@ public class UserConfiguration : IEntityTypeConfiguration<User>
         builder.Property(u => u.TwoFactorEnabled).HasColumnName("two_factor_enabled").HasDefaultValue(false);
         builder.Property(u => u.CreatedAt).HasColumnName("created_at");
         builder.Property(u => u.LastLoginAt).HasColumnName("last_login_at");
+        builder.Property(u => u.FailedLoginCount).HasColumnName("failed_login_count").HasDefaultValue(0);
+        builder.Property(u => u.LockedUntil).HasColumnName("locked_until");
 
         builder.HasIndex(u => u.Email).IsUnique();
         builder.HasIndex(u => u.PhoneNumber).IsUnique();

@@ -51,7 +51,7 @@ public class TenantDirectory(
                 var slug = normalizedHost[..^(baseDomain.Length + 1)];
                 tenant = await dbContext.Tenants
                     .FirstOrDefaultAsync(
-                        t => string.Equals(t.Slug, slug, StringComparison.OrdinalIgnoreCase),
+                        t => t.Slug.ToLower() == slug.ToLower(),
                         cancellationToken);
 
                 if (tenant?.IsActive == true)

@@ -15,6 +15,7 @@ public static class SystemModuleRegistration
             options.UseNpgsql(configuration.GetConnectionString("DefaultConnection")));
 
         services.AddScoped<ISystemDbContext>(sp => sp.GetRequiredService<SystemDbContext>());
+        services.AddSingleton<RCLimit.BuildingBlocks.Contracts.Auth.ITenantSessionPolicyProvider, TenantSessionPolicyProvider>();
 
         services.AddMediatR(cfg =>
             cfg.RegisterServicesFromAssembly(typeof(CreateTenantCommandHandler).Assembly));

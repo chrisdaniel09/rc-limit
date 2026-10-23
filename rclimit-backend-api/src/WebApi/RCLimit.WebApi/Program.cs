@@ -6,8 +6,10 @@ using Microsoft.IdentityModel.Tokens;
 using OpenTelemetry.Resources;
 using OpenTelemetry.Trace;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Contracts.Auth;
 using RCLimit.BuildingBlocks.Contracts.Integrations;
 using RCLimit.BuildingBlocks.Infrastructure;
+using RCLimit.BuildingBlocks.Infrastructure.Auth;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.BuildingBlocks.Infrastructure.Middleware;
 using RCLimit.BuildingBlocks.Infrastructure.Stubs;
@@ -75,6 +77,19 @@ try
 
     builder.Services.AddSingleton<ITenantDirectory, TenantDirectory>();
 
+    // Auth configuration: bind, validate against the deployment profile, and fail fast when inconsistent.
+    var authOptions = builder.Configuration.GetSection(AuthOptions.SectionName).Get<AuthOptions>() ?? new AuthOptions();
+    authOptions.CorsAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>() ?? [];
+    // Platform lifetime defaults come from the Jwt section (spec section 5.2).
+    authOptions.Session.AccessTokenMinutes = builder.Configuration.GetValue("Jwt:AccessTokenExpirationMinutes", authOptions.Session.AccessTokenMinutes);
+    authOptions.Session.IdleTimeoutDays = builder.Configuration.GetValue("Jwt:RefreshTokenExpirationDays", authOptions.Session.IdleTimeoutDays);
+    var authErrors = authOptions.Validate(builder.Environment.IsDevelopment(), builder.Configuration["Jwt:Secret"]);
+    if (authErrors.Count > 0)
+        throw new InvalidOperationException("Invalid auth configuration: " + string.Join(" ", authErrors));
+
+    builder.Services.AddSingleton(Microsoft.Extensions.Options.Options.Create(authOptions));
+    builder.Services.AddScoped<CookieCsrfGuard>();
+
     var jwtSecret = builder.Configuration["Jwt:Secret"]!;
     var jwtIssuer = builder.Configuration["Jwt:Issuer"]!;
     var jwtAudience = builder.Configuration["Jwt:Audience"]!;
@@ -89,6 +104,8 @@ try
                 ValidateLifetime = true,
                 ValidateIssuerSigningKey = true,
                 ValidIssuer = jwtIssuer,
+                ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
+                ValidTypes = new[] { "at+jwt" },
                 ValidAudience = jwtAudience,
                 IssuerSigningKey = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtSecret)),
                 ClockSkew = TimeSpan.Zero
@@ -99,8 +116,6 @@ try
     builder.Services.AddSingleton<IAuthorizationPolicyProvider, HasRightPolicyProvider>();
     builder.Services.AddAuthorization();
 
-    var staticAllowedOrigins = builder.Configuration.GetSection("Cors:AllowedOrigins").Get<string[]>()
-        ?? new[] { "http://localhost:5173", "http://anna-finance.localhost:5173" };
 
     builder.Services.AddCors(options =>
     {
@@ -116,7 +131,7 @@ try
     builder.Services.AddSingleton<ICorsPolicyProvider>(sp =>
         new TenantAwareCorsPolicy(
             sp.GetRequiredService<ITenantDirectory>(),
-            staticAllowedOrigins));
+            sp.GetRequiredService<Microsoft.Extensions.Options.IOptions<AuthOptions>>()));
 
     builder.Services.AddOpenTelemetry()
         .ConfigureResource(resource => resource.AddService("RCLimit.WebApi"))
@@ -124,6 +139,29 @@ try
             .AddAspNetCoreInstrumentation()
             .AddHttpClientInstrumentation()
             .AddConsoleExporter());
+
+    // Rate limits for credential endpoints (spec section 8.1). Partitioned by client IP, which is the
+    // edge-supplied client address when the edge is enforced.
+    builder.Services.AddRateLimiter(limiter =>
+    {
+        limiter.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        limiter.AddPolicy("auth-login", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            RequestHostResolver.ClientIp(context, authOptions) ?? "unknown",
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 20,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+        limiter.AddPolicy("auth-refresh", context => System.Threading.RateLimiting.RateLimitPartition.GetFixedWindowLimiter(
+            RequestHostResolver.ClientIp(context, authOptions) ?? "unknown",
+            _ => new System.Threading.RateLimiting.FixedWindowRateLimiterOptions
+            {
+                PermitLimit = 120,
+                Window = TimeSpan.FromMinutes(15),
+                QueueLimit = 0
+            }));
+    });
 
     var app = builder.Build();
 
@@ -142,6 +180,7 @@ try
     app.UseSerilogRequestLogging();
     app.UseMiddleware<DiagnosticContextMiddleware>();
     app.UseRouting();
+    app.UseRateLimiter();
     app.UseAuthentication();
     app.UseAuthorization();
     app.UseMiddleware<TenantMiddleware>();

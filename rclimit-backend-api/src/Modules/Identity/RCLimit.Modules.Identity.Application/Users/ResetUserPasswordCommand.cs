@@ -1,44 +1,39 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Application.Abstractions;
+using RCLimit.Modules.Identity.Application.Sessions;
+using RCLimit.Modules.Identity.Domain.Entities;
 
 namespace RCLimit.Modules.Identity.Application.Users;
 
 public record ResetUserPasswordCommand(Guid UserId, string NewPassword) : IRequest;
 
-public class ResetUserPasswordCommandHandler : IRequestHandler<ResetUserPasswordCommand>
+public class ResetUserPasswordCommandHandler(
+    IIdentityDbContext db,
+    IPasswordHasher passwordHasher,
+    SessionService sessions,
+    ITenantContext tenant,
+    ILogger<ResetUserPasswordCommandHandler> logger) : IRequestHandler<ResetUserPasswordCommand>
 {
-    private readonly IIdentityDbContext _db;
-    private readonly IPasswordHasher _passwordHasher;
-    private readonly ITenantContext _tenant;
-
-    public ResetUserPasswordCommandHandler(IIdentityDbContext db, IPasswordHasher passwordHasher, ITenantContext tenant)
-    {
-        _db = db;
-        _passwordHasher = passwordHasher;
-        _tenant = tenant;
-    }
-
     public async Task Handle(ResetUserPasswordCommand request, CancellationToken cancellationToken)
     {
         PasswordPolicy.Validate(request.NewPassword);
 
-        var user = await _db.Users
-            .FirstOrDefaultAsync(u => u.UserId == request.UserId && u.TenantId == _tenant.TenantId, cancellationToken)
+        var user = await db.Users
+            .FirstOrDefaultAsync(u => u.UserId == request.UserId && u.TenantId == tenant.TenantId, cancellationToken)
             ?? throw new NotFoundException("User", request.UserId);
 
-        var (hash, salt) = _passwordHasher.HashPassword(request.NewPassword);
+        var (hash, salt) = passwordHasher.HashPassword(request.NewPassword);
         user.UpdatePassword(hash, salt);
+        user.ClearFailedLogins();
 
-        // Sign the user out everywhere: their existing sessions must not survive a credential reset.
-        var activeTokens = await _db.RefreshTokens
-            .Where(rt => rt.UserId == user.UserId && !rt.IsRevoked)
-            .ToListAsync(cancellationToken);
-        foreach (var token in activeTokens)
-            token.Revoke();
+        // A credential reset signs the user out everywhere (spec section 6.5).
+        await sessions.RevokeAllForUserAsync(user.UserId, RefreshRevocationReasons.AdminReset, cancellationToken);
+        await db.SaveChangesAsync(cancellationToken);
 
-        await _db.SaveChangesAsync(cancellationToken);
+        logger.LogInformation("auth.password_reset tenant={TenantId} user={UserId}", tenant.TenantId, user.UserId);
     }
 }

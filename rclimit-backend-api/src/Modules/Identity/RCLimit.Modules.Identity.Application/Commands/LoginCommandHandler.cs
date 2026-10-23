@@ -1,112 +1,100 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Contracts.Auth;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Dtos;
-using RCLimit.Modules.Identity.Contracts.Dtos;
-using RCLimit.Modules.Identity.Domain.Entities;
+using RCLimit.Modules.Identity.Application.Sessions;
 
 namespace RCLimit.Modules.Identity.Application.Commands;
 
-public class LoginCommandHandler : IRequestHandler<LoginCommand, AuthResponse>
+public class LoginCommandHandler(
+    IIdentityDbContext db,
+    IPasswordHasher passwordHasher,
+    SessionService sessions,
+    ITenantContext tenantContext,
+    IOptions<AuthOptions> options,
+    ILogger<LoginCommandHandler> logger) : IRequestHandler<LoginCommand, AuthResponse>
 {
-    private readonly IIdentityDbContext _db;
-    private readonly IPasswordHasher _passwordHasher;
-    private readonly IJwtTokenService _jwtService;
-    private readonly ITenantContext _tenantContext;
+    private const string InvalidCredentials = "Invalid email or password.";
 
-    public LoginCommandHandler(
-        IIdentityDbContext db,
-        IPasswordHasher passwordHasher,
-        IJwtTokenService jwtService,
-        ITenantContext tenantContext)
-    {
-        _db = db;
-        _passwordHasher = passwordHasher;
-        _jwtService = jwtService;
-        _tenantContext = tenantContext;
-    }
+    private static readonly object DummyLock = new();
+    private static (string Hash, string Salt)? _dummy;
 
     public async Task<AuthResponse> Handle(LoginCommand request, CancellationToken cancellationToken)
     {
-        var tenantId = _tenantContext.TenantId;
+        var now = DateTime.UtcNow;
+        var tenantId = tenantContext.TenantId;
+        var email = request.Email.Trim();
+        var lockout = options.Value.Lockout;
 
-        // Tenant must be resolved from the request domain by middleware
-        if (tenantId == Guid.Empty)
-            throw new BusinessRuleException("Tenant could not be resolved from the request domain.");
+        var user = await db.Users.FirstOrDefaultAsync(
+            u => u.Email == email && u.TenantId == tenantId, cancellationToken);
 
-        // Look up user within this tenant only
-        var user = await _db.Users
-            .FirstOrDefaultAsync(u => u.Email == request.Email && u.TenantId == tenantId, cancellationToken)
-            ?? throw new InvalidOperationException("Invalid email or password.");
+        if (user is null)
+        {
+            // Run a real verification so an unknown email costs the same time as a wrong password.
+            var dummy = DummyHash();
+            passwordHasher.VerifyPassword(request.Password, dummy.Hash, dummy.Salt);
+            logger.LogWarning("auth.login.failure reason={Reason} tenant={TenantId} ip={IpAddress}",
+                "unknown_account", tenantId, request.IpAddress);
+            throw InvalidCredentialsException();
+        }
+
+        var passwordOk = user.PasswordHash is not null
+            && user.PasswordSalt is not null
+            && passwordHasher.VerifyPassword(request.Password, user.PasswordHash, user.PasswordSalt);
+
+        if (user.IsLockedOut(now))
+        {
+            logger.LogWarning("auth.login.failure reason={Reason} tenant={TenantId} user={UserId} ip={IpAddress}",
+                "locked", tenantId, user.UserId, request.IpAddress);
+            throw InvalidCredentialsException();
+        }
 
         if (!user.IsActive)
-            throw new InvalidOperationException("Account is deactivated.");
+        {
+            logger.LogWarning("auth.login.failure reason={Reason} tenant={TenantId} user={UserId} ip={IpAddress}",
+                "inactive", tenantId, user.UserId, request.IpAddress);
+            throw InvalidCredentialsException();
+        }
 
-        if (user.PasswordHash is null || user.PasswordSalt is null)
-            throw new InvalidOperationException("Invalid email or password.");
+        if (!passwordOk)
+        {
+            user.RecordFailedLogin(now, lockout.MaxFailedAttempts, TimeSpan.FromMinutes(lockout.LockoutMinutes));
+            await db.SaveChangesAsync(cancellationToken);
+            logger.LogWarning("auth.login.failure reason={Reason} tenant={TenantId} user={UserId} ip={IpAddress}",
+                "bad_password", tenantId, user.UserId, request.IpAddress);
+            throw InvalidCredentialsException();
+        }
 
-        if (!_passwordHasher.VerifyPassword(request.Password, user.PasswordHash, user.PasswordSalt))
-            throw new InvalidOperationException("Invalid email or password.");
-
+        user.ClearFailedLogins();
         user.RecordLogin();
 
-        var userRoleIds = await _db.UserRoles
-            .Where(ur => ur.UserId == user.UserId)
-            .Select(ur => ur.RoleId)
-            .ToListAsync(cancellationToken);
+        var session = await sessions.StartAsync(user, request.IpAddress, request.UserAgent, cancellationToken);
 
-        var roles = await _db.Roles
-            .Where(r => userRoleIds.Contains(r.RoleId))
-            .ToListAsync(cancellationToken);
-
-        var roleNames = roles.Select(r => r.Name).ToList();
-
-        var roleRights = await _db.RoleRights
-            .Where(rr => userRoleIds.Contains(rr.RoleId))
-            .ToListAsync(cancellationToken);
-
-        var rightIds = roleRights.Select(rr => rr.RightId).Distinct().ToList();
-        var rights = await _db.Rights
-            .Where(r => rightIds.Contains(r.RightId))
-            .ToListAsync(cancellationToken);
-
-        var rightCodes = rights.Select(r => r.Code).ToList();
-
-        var accessToken = _jwtService.GenerateAccessToken(user, roleNames, rightCodes);
-        var refreshTokenValue = _jwtService.GenerateRefreshToken();
-        var expiresAt = DateTime.UtcNow.AddDays(7);
-
-        var refreshToken = RefreshToken.Create(
-            user.UserId,
-            ComputeTokenHash(refreshTokenValue),
-            expiresAt);
-
-        _db.RefreshTokens.Add(refreshToken);
-        await _db.SaveChangesAsync(cancellationToken);
-
-        var userRoleDtos = roles.Select(r => new RoleDto(
-            r.RoleId,
-            r.Code,
-            r.Name,
-            r.Description,
-            r.IsSystem,
-            r.IsActive,
-            new List<RightDto>()
-        )).ToList();
+        logger.LogInformation("auth.login.success tenant={TenantId} user={UserId} ip={IpAddress}",
+            tenantId, user.UserId, request.IpAddress);
 
         return new AuthResponse(
-            accessToken,
-            refreshTokenValue,
-            DateTime.UtcNow.AddMinutes(15),
-            new UserDto(user.UserId, user.TenantId, user.Email, user.FullName, userRoleDtos, rightCodes));
+            session.AccessToken,
+            session.RefreshToken,
+            session.AccessExpiresAt,
+            session.User,
+            session.RefreshExpiresAt);
     }
 
-    private static string ComputeTokenHash(string token)
+    private static AuthenticationFailedException InvalidCredentialsException() =>
+        new(InvalidCredentials, "AUTH_INVALID_CREDENTIALS");
+
+    private (string Hash, string Salt) DummyHash()
     {
-        var bytes = System.Security.Cryptography.SHA256.HashData(
-            System.Text.Encoding.UTF8.GetBytes(token));
-        return Convert.ToBase64String(bytes);
+        lock (DummyLock)
+        {
+            return _dummy ??= passwordHasher.HashPassword("timing-equaliser-not-a-real-password");
+        }
     }
 }

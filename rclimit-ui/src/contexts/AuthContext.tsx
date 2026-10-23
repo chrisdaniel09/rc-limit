@@ -1,97 +1,82 @@
-import { useReducer, useEffect, type ReactNode } from 'react';
-import { loadConfig, getApiBaseUrl } from '../config';
-import { AuthContext, type AuthState, type User } from './authContextValue';
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react';
+import { loadConfig } from '../config';
+import { AuthContext, type AuthContextValue, type User } from './authContextValue';
+import {
+  clearSession,
+  loginRequest,
+  logoutRequest,
+  refreshOnce,
+  subscribeSession,
+} from '../api/client';
 
-type AuthAction =
-  | { type: 'LOGIN'; payload: { token: string; user: User } }
-  | { type: 'LOGOUT' }
-  | { type: 'SET_USER'; payload: User };
-
-function resolveUrl(url: string): string {
-  return getApiBaseUrl() + url;
-}
-
-function authReducer(state: AuthState, action: AuthAction): AuthState {
-  switch (action.type) {
-    case 'LOGIN':
-      return { token: action.payload.token, user: action.payload.user, isAuthenticated: true };
-    case 'LOGOUT':
-      return { token: null, user: null, isAuthenticated: false };
-    case 'SET_USER':
-      return { ...state, user: action.payload };
-    default:
-      return state;
-  }
-}
+// Other tabs learn about login and logout through this channel.
+const sessionChannel = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('rclimit-auth') : null;
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [state, dispatch] = useReducer(authReducer, {
-    token: null,
-    user: null,
-    isAuthenticated: false,
-  });
+  const [user, setUser] = useState<User | null>(null);
+  const [isInitializing, setIsInitializing] = useState(true);
 
+  // Mirror the client's session state into React.
+  useEffect(() => subscribeSession(setUser), []);
+
+  // Startup: load config, then try a silent refresh through the cookie.
+  // Under StrictMode the effect runs twice; refreshOnce shares one request between the two runs.
   useEffect(() => {
-    loadConfig();
-    const token = localStorage.getItem('rclimit_token');
-    const userJson = localStorage.getItem('rclimit_user');
-    if (token && userJson) {
-      try {
-        const user = JSON.parse(userJson) as User;
-        dispatch({ type: 'LOGIN', payload: { token, user } });
-      } catch {
-        localStorage.removeItem('rclimit_token');
-        localStorage.removeItem('rclimit_user');
-      }
-    }
+    let cancelled = false;
+
+    const initialise = async () => {
+      await loadConfig();
+      await refreshOnce();
+      if (!cancelled) setIsInitializing(false);
+    };
+    void initialise();
+
+    const onMessage = (event: MessageEvent<string>) => {
+      if (event.data === 'logout') clearSession();
+      if (event.data === 'login') void refreshOnce();
+    };
+    sessionChannel?.addEventListener('message', onMessage);
+
+    return () => {
+      cancelled = true;
+      sessionChannel?.removeEventListener('message', onMessage);
+    };
   }, []);
 
-  const login = async (email: string, password: string) => {
-    const res = await fetch(resolveUrl('/api/v1/auth/login'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
-    if (!res.ok) {
-      const err = await res.text();
-      throw new Error(err || 'Invalid credentials');
-    }
-    const raw = await res.json();
-    const data = raw.data ?? raw;
-    localStorage.setItem('rclimit_token', data.accessToken);
-    localStorage.setItem('rclimit_refresh', data.refreshToken);
-    localStorage.setItem('rclimit_user', JSON.stringify(data.user));
-    dispatch({ type: 'LOGIN', payload: { token: data.accessToken, user: data.user } });
-  };
+  const login = useCallback(async (email: string, password: string) => {
+    await loginRequest(email, password);
+    sessionChannel?.postMessage('login');
+  }, []);
 
-  const logout = async () => {
-    const refreshToken = localStorage.getItem('rclimit_refresh');
-    try {
-      await fetch(resolveUrl('/api/v1/auth/logout'), {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${state.token}`,
-        },
-        body: JSON.stringify({ refreshToken }),
-      });
-    } catch {
-      // ignore logout API errors
-    }
-    localStorage.removeItem('rclimit_token');
-    localStorage.removeItem('rclimit_refresh');
-    localStorage.removeItem('rclimit_user');
-    dispatch({ type: 'LOGOUT' });
-  };
+  const logout = useCallback(async () => {
+    await logoutRequest();
+    sessionChannel?.postMessage('logout');
+  }, []);
 
-  const hasRight = (rightCode: string): boolean => {
-    if (!state.user) return false;
-    return state.user.rightCodes?.includes(rightCode) ?? false;
-  };
-
-  return (
-    <AuthContext.Provider value={{ ...state, login, logout, hasRight }}>
-      {children}
-    </AuthContext.Provider>
+  const hasRight = useCallback(
+    (rightCode: string) => user?.rightCodes?.includes(rightCode) ?? false,
+    [user],
   );
+
+  const value = useMemo<AuthContextValue>(
+    () => ({
+      user,
+      isAuthenticated: user !== null,
+      isInitializing,
+      login,
+      logout,
+      hasRight,
+    }),
+    [user, isInitializing, login, logout, hasRight],
+  );
+
+  if (isInitializing) {
+    return (
+      <div className="flex h-screen items-center justify-center bg-gray-50">
+        <div className="text-sm font-medium text-gray-500">Loading...</div>
+      </div>
+    );
+  }
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

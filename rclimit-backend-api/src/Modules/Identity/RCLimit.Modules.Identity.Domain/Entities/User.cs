@@ -14,6 +14,8 @@ public class User
     public bool TwoFactorEnabled { get; private set; }
     public DateTime CreatedAt { get; private set; } = DateTime.UtcNow;
     public DateTime? LastLoginAt { get; private set; }
+    public int FailedLoginCount { get; private set; }
+    public DateTime? LockedUntil { get; private set; }
 
     public ICollection<UserIdentity> Identities { get; private set; } = [];
     public ICollection<RefreshToken> RefreshTokens { get; private set; } = [];
@@ -43,6 +45,25 @@ public class User
     }
 
     public void RecordLogin() => LastLoginAt = DateTime.UtcNow;
+
+    public bool IsLockedOut(DateTime now) => LockedUntil is { } until && until > now;
+
+    /// <summary>Counts a failed password attempt and locks the account after <paramref name="maxAttempts"/>.</summary>
+    public void RecordFailedLogin(DateTime now, int maxAttempts, TimeSpan lockout)
+    {
+        FailedLoginCount++;
+        if (FailedLoginCount >= maxAttempts)
+        {
+            LockedUntil = now.Add(lockout);
+            FailedLoginCount = 0;
+        }
+    }
+
+    public void ClearFailedLogins()
+    {
+        FailedLoginCount = 0;
+        LockedUntil = null;
+    }
 
     public void UpdatePassword(string hash, string salt)
     {

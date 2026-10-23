@@ -16,6 +16,10 @@ public class TenantSettingsConfiguration : IEntityTypeConfiguration<TenantSettin
         builder.Property(e => e.AllowWhatsappIntake).HasColumnName("allow_whatsapp_intake").HasDefaultValue(true);
         builder.Property(e => e.CustomVahanApiKey).HasColumnName("custom_vahan_api_key").HasMaxLength(255);
         builder.Property(e => e.CustomCibilGatewayCredentials).HasColumnName("custom_cibil_gateway_credentials").HasColumnType("jsonb");
+        builder.Property(e => e.AccessTokenMinutes).HasColumnName("access_token_minutes");
+        builder.Property(e => e.IdleTimeoutDays).HasColumnName("idle_timeout_days");
+        builder.Property(e => e.AbsoluteTimeoutDays).HasColumnName("absolute_timeout_days");
+        builder.Property(e => e.MaxSessionsPerUser).HasColumnName("max_sessions_per_user");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
     }
 }

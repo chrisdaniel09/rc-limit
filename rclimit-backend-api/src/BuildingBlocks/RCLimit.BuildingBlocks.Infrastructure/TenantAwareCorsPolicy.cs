@@ -1,51 +1,39 @@
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Options;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Contracts.Auth;
 
 namespace RCLimit.BuildingBlocks.Infrastructure;
 
 /// <summary>
-/// Custom CORS policy provider that allows origins for any active tenant domain,
-/// plus any additional statically configured allowed origins.
+/// CORS policy by deployment profile.
+/// SameSite: no cross-origin access at all (the browser never calls the API cross-origin).
+/// CrossSite: the configured UI origins plus the origin of any active tenant, with credentials.
 /// </summary>
-public class TenantAwareCorsPolicy : ICorsPolicyProvider
+public class TenantAwareCorsPolicy(ITenantDirectory tenantDirectory, IOptions<AuthOptions> options) : ICorsPolicyProvider
 {
-    private readonly ITenantDirectory _tenantDirectory;
-    private readonly string[] _staticAllowedOrigins;
-
-    public TenantAwareCorsPolicy(ITenantDirectory tenantDirectory, string[] staticAllowedOrigins)
-    {
-        _tenantDirectory = tenantDirectory;
-        _staticAllowedOrigins = staticAllowedOrigins;
-    }
-
     public async Task<CorsPolicy?> GetPolicyAsync(HttpContext context, string? policyName)
     {
+        var authOptions = options.Value;
+
         var policy = new CorsPolicyBuilder()
             .AllowAnyHeader()
             .AllowAnyMethod()
             .AllowCredentials();
 
-        // Add static origins
-        foreach (var origin in _staticAllowedOrigins)
-        {
+        if (authOptions.DeploymentProfile == DeploymentProfile.SameSite)
+            return policy.Build();
+
+        foreach (var origin in authOptions.CorsAllowedOrigins)
             policy.WithOrigins(origin);
-        }
 
-        // Try to resolve the request's origin domain
-        if (context.Request.Headers.TryGetValue("Origin", out var originHeader))
+        if (context.Request.Headers.TryGetValue("Origin", out var originHeader)
+            && Uri.TryCreate(originHeader.ToString(), UriKind.Absolute, out var uri))
         {
-            if (Uri.TryCreate(originHeader.ToString(), UriKind.Absolute, out var uri))
-            {
-                var host = uri.Host;
-                var tenant = await _tenantDirectory.FindByHostAsync(host, context.RequestAborted);
-
-                // Allow if the origin matches an active tenant domain
-                if (tenant?.IsActive == true)
-                {
-                    policy.WithOrigins(originHeader.ToString());
-                }
-            }
+            var tenant = await tenantDirectory.FindByHostAsync(uri.Host, context.RequestAborted);
+            if (tenant?.IsActive == true)
+                policy.WithOrigins(originHeader.ToString());
         }
 
         return policy.Build();

@@ -19,7 +19,7 @@ interface User {
   rightCodes?: string[];
 }
 
-const MIN_PASSWORD_LENGTH = 8;
+const MIN_PASSWORD_LENGTH = 12;
 
 const emptyCreateForm = { email: '', fullName: '', phoneNumber: '', password: '', confirmPassword: '' };
 

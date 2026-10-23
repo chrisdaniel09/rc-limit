@@ -6,6 +6,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Application.Commands;
+using RCLimit.Modules.Identity.Application.Sessions;
 using RCLimit.Modules.Identity.Contracts;
 using RCLimit.Modules.Identity.Infrastructure.Persistence;
 using RCLimit.Modules.Identity.Infrastructure.Services;
@@ -24,10 +25,11 @@ public static class IdentityModuleRegistration
         services.AddScoped<IIdentityDbContext>(sp => sp.GetRequiredService<IdentityDbContext>());
         services.AddScoped<IPasswordHasher, Argon2PasswordHasher>();
         services.AddScoped<IJwtTokenService, JwtTokenService>();
+        services.AddScoped<SessionService>();
         services.AddScoped<IIdentityModuleApi, IdentityModuleApi>();
 
         services.AddMediatR(cfg =>
-            cfg.RegisterServicesFromAssembly(typeof(RegisterCommand).Assembly));
+            cfg.RegisterServicesFromAssembly(typeof(LoginCommand).Assembly));
 
         services.AddAuthentication(options =>
         {

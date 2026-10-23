@@ -1,6 +1,5 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Security.Claims;
-using System.Security.Cryptography;
 using System.Text;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
@@ -11,6 +10,12 @@ namespace RCLimit.Modules.Identity.Infrastructure.Services;
 
 public class JwtTokenService : IJwtTokenService
 {
+    private const string AccessTokenType = "at+jwt";
+    private const string RoleClaim = "role";
+    private const string RightClaim = "right";
+    private const string SessionClaim = "sid";
+    private const string TenantClaim = "tenant_id";
+
     private readonly IConfiguration _configuration;
 
     public JwtTokenService(IConfiguration configuration)
@@ -18,63 +23,52 @@ public class JwtTokenService : IJwtTokenService
         _configuration = configuration;
     }
 
-    public string GenerateAccessToken(User user, List<string>? roleNames = null, List<string>? rightCodes = null)
+    public string GenerateAccessToken(
+        User user,
+        Guid sessionId,
+        IReadOnlyCollection<string> roleNames,
+        IReadOnlyCollection<string> rightCodes,
+        DateTime expiresAtUtc)
     {
-        var key = new SymmetricSecurityKey(
-            Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!));
+        var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!));
         var credentials = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
-        var claimsList = new List<Claim>
+        var claims = new List<Claim>
         {
-            new Claim(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Email, user.Email ?? ""),
-            new Claim("tenant_id", user.TenantId.ToString()),
-            new Claim(JwtRegisteredClaimNames.Name, user.FullName ?? ""),
-            new Claim(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString())
+            new(JwtRegisteredClaimNames.Sub, user.UserId.ToString()),
+            new(JwtRegisteredClaimNames.Email, user.Email ?? string.Empty),
+            new(JwtRegisteredClaimNames.Name, user.FullName ?? string.Empty),
+            new(JwtRegisteredClaimNames.Jti, Guid.NewGuid().ToString()),
+            new(SessionClaim, sessionId.ToString()),
+            new(TenantClaim, user.TenantId.ToString()),
         };
+        claims.AddRange(roleNames.Select(name => new Claim(RoleClaim, name)));
+        claims.AddRange(rightCodes.Select(code => new Claim(RightClaim, code)));
 
-        if (roleNames != null)
-        {
-            foreach (var roleName in roleNames)
-            {
-                claimsList.Add(new Claim(ClaimTypes.Role, roleName));
-            }
-        }
+        var header = new JwtHeader(credentials) { ["typ"] = AccessTokenType };
+        var payload = new JwtPayload(
+            _configuration["Jwt:Issuer"],
+            _configuration["Jwt:Audience"],
+            claims,
+            notBefore: null,
+            expires: expiresAtUtc,
+            issuedAt: DateTime.UtcNow);
 
-        if (rightCodes != null)
-        {
-            foreach (var rightCode in rightCodes)
-            {
-                claimsList.Add(new Claim("right", rightCode));
-            }
-        }
-
-        var token = new JwtSecurityToken(
-            issuer: _configuration["Jwt:Issuer"],
-            audience: _configuration["Jwt:Audience"],
-            claims: claimsList,
-            expires: DateTime.UtcNow.AddMinutes(15),
-            signingCredentials: credentials);
-
-        return new JwtSecurityTokenHandler().WriteToken(token);
-    }
-
-    public string GenerateRefreshToken()
-    {
-        return Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+        return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
     }
 
     public ClaimsPrincipal? ValidateAccessToken(string token)
     {
-        var tokenHandler = new JwtSecurityTokenHandler();
         var key = Encoding.UTF8.GetBytes(_configuration["Jwt:Secret"]!);
 
         try
         {
-            return tokenHandler.ValidateToken(token, new TokenValidationParameters
+            return new JwtSecurityTokenHandler().ValidateToken(token, new TokenValidationParameters
             {
                 ValidateIssuerSigningKey = true,
                 IssuerSigningKey = new SymmetricSecurityKey(key),
+                ValidAlgorithms = new[] { SecurityAlgorithms.HmacSha256 },
+                ValidTypes = new[] { AccessTokenType },
                 ValidateIssuer = true,
                 ValidIssuer = _configuration["Jwt:Issuer"],
                 ValidateAudience = true,
@@ -83,7 +77,7 @@ public class JwtTokenService : IJwtTokenService
                 ClockSkew = TimeSpan.Zero
             }, out _);
         }
-        catch
+        catch (SecurityTokenException)
         {
             return null;
         }

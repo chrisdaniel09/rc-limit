@@ -15,13 +15,10 @@ export interface User {
   rightCodes?: string[];
 }
 
-export interface AuthState {
-  token: string | null;
+export interface AuthContextValue {
   user: User | null;
   isAuthenticated: boolean;
-}
-
-export interface AuthContextValue extends AuthState {
+  isInitializing: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   hasRight: (rightCode: string) => boolean;

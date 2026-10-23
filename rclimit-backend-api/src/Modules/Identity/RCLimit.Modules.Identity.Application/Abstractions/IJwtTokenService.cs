@@ -5,7 +5,13 @@ namespace RCLimit.Modules.Identity.Application.Abstractions;
 
 public interface IJwtTokenService
 {
-    string GenerateAccessToken(User user, List<string>? roleNames = null, List<string>? rightCodes = null);
-    string GenerateRefreshToken();
+    /// <summary>Issues an RFC 9068 access token (typ: at+jwt) bound to a session family via the sid claim.</summary>
+    string GenerateAccessToken(
+        User user,
+        Guid sessionId,
+        IReadOnlyCollection<string> roleNames,
+        IReadOnlyCollection<string> rightCodes,
+        DateTime expiresAtUtc);
+
     ClaimsPrincipal? ValidateAccessToken(string token);
 }

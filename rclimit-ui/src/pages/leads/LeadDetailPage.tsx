@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPut, apiPost, apiGet } from '../../api/client';
@@ -105,19 +105,116 @@ const CHECK_STATUSES = [
   { value: 'FAILED', label: 'Failed' },
 ];
 
-const getStatusIcon = (status: string) => {
-  if (status === 'PASSED') return '✓';
-  if (status === 'FAILED') return '✗';
-  if (status === 'IN_PROGRESS') return '⏱';
-  return '○';
+const LEAD_SOURCE_LABELS: Record<string, string> = {
+  WHATSAPP: 'WhatsApp',
+  INSTAGRAM: 'Instagram',
+  CALL_IN: 'Call-in',
+  WALK_IN: 'Walk-in',
+  REFERRAL: 'Referral',
+  WEBSITE: 'Website',
+  OTHER: 'Other',
 };
 
-const getStatusColor = (status: string) => {
-  if (status === 'PASSED') return 'bg-green-100 text-green-800 border-green-200';
-  if (status === 'FAILED') return 'bg-red-100 text-red-800 border-red-200';
-  if (status === 'NOT_STARTED') return 'bg-gray-100 text-gray-800 border-gray-200';
-  return 'bg-amber-100 text-amber-800 border-amber-200';
+const TONE_CLASSES = {
+  success: { card: 'border-green-200 bg-green-50', text: 'text-green-800', icon: 'bg-green-600', glyph: '✓' },
+  danger: { card: 'border-red-200 bg-red-50', text: 'text-red-800', icon: 'bg-red-600', glyph: '✗' },
+  warning: { card: 'border-amber-200 bg-amber-50', text: 'text-amber-800', icon: 'bg-amber-500', glyph: '⏱' },
+  info: { card: 'border-indigo-200 bg-indigo-50', text: 'text-indigo-800', icon: 'bg-indigo-600', glyph: '•' },
+  neutral: { card: 'border-gray-200 bg-white', text: 'text-gray-700', icon: 'bg-gray-400', glyph: '○' },
+} as const;
+
+type Tone = keyof typeof TONE_CLASSES;
+
+const getCheckTone = (status: string): Tone => {
+  if (status === 'PASSED') return 'success';
+  if (status === 'FAILED') return 'danger';
+  if (status === 'IN_PROGRESS') return 'warning';
+  return 'neutral';
 };
+
+const getLeadStatusTone = (status: string): Tone => {
+  if (status === 'QUALIFIED') return 'success';
+  if (status === 'REJECTED') return 'danger';
+  if (status === 'IN_PROGRESS') return 'warning';
+  return 'info';
+};
+
+function Card({ title, action, children }: { title: string; action?: ReactNode; children: ReactNode }) {
+  return (
+    <section className="rounded-xl border border-gray-200 bg-white shadow-sm">
+      <header className="flex items-center justify-between border-b border-gray-100 px-5 py-3">
+        <h3 className="text-sm font-semibold text-gray-900">{title}</h3>
+        {action}
+      </header>
+      <div className="space-y-4 px-5 py-4">{children}</div>
+    </section>
+  );
+}
+
+function InfoItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-xs text-gray-500">{label}</dt>
+      <dd className="mt-1 break-words font-medium text-gray-900">{value}</dd>
+    </div>
+  );
+}
+
+function StatusTile({ label, value, tone }: { label: string; value: string; tone: Tone }) {
+  const styles = TONE_CLASSES[tone];
+  return (
+    <div className={`flex items-center justify-between rounded-xl border px-5 py-4 ${styles.card}`}>
+      <div>
+        <p className="text-xs font-medium text-gray-600">{label}</p>
+        <p className={`mt-1 text-base font-semibold ${styles.text}`}>{value.replace(/_/g, ' ')}</p>
+      </div>
+      <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${styles.icon}`}>
+        {styles.glyph}
+      </span>
+    </div>
+  );
+}
+
+function StatusPill({ status }: { status: string }) {
+  const styles = TONE_CLASSES[getCheckTone(status)];
+  const label = CHECK_STATUSES.find(s => s.value === status)?.label ?? status;
+  return <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${styles.card} ${styles.text}`}>{label}</span>;
+}
+
+function TextAreaField({ label, value, onChange, placeholder, disabled }: {
+  label: string;
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+  disabled?: boolean;
+}) {
+  return (
+    <div>
+      <label className="block text-sm font-medium text-gray-700">{label}</label>
+      <textarea
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        disabled={disabled}
+        placeholder={placeholder}
+        rows={3}
+        className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm placeholder:text-gray-400 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none disabled:bg-gray-100 disabled:text-gray-500"
+      />
+    </div>
+  );
+}
+
+function AutomatedCheckButton({ onClick, busy }: { onClick: () => void; busy: boolean }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
+    >
+      {busy ? 'Processing…' : '✨ Initiate automated check'}
+    </button>
+  );
+}
 
 export default function LeadDetailPage() {
   const navigate = useNavigate();
@@ -374,6 +471,7 @@ export default function LeadDetailPage() {
   }
 
   const userOptions = users?.map(u => ({ value: u.userId, label: u.fullName || u.userId })) ?? [];
+  const sourceLabel = LEAD_SOURCE_LABELS[lead.leadSource] ?? lead.leadSource;
   const lastComment = comments && comments.length > 0 ? comments[0] : null;
 
   return (
@@ -397,189 +495,123 @@ export default function LeadDetailPage() {
       )}
 
       {/* Header */}
-      <div className="bg-white border-b border-gray-200 px-6 py-4 flex-shrink-0">
-        <div className="flex items-center justify-between mb-4">
+      <div className="flex-shrink-0 border-b border-gray-200 bg-white px-6 pb-6 pt-5">
+        <div className="flex flex-wrap items-start justify-between gap-4">
           <div>
             <button
               onClick={() => navigate('/leads')}
-              className="text-indigo-600 hover:text-indigo-700 font-medium text-sm mb-2 flex items-center gap-1"
+              className="inline-flex items-center gap-1 text-sm font-medium text-indigo-600 hover:text-indigo-700"
             >
-              ← Back to Leads
+              ← Back to leads
             </button>
-            <h1 className="text-3xl font-bold text-gray-900">{lead.applicantName || 'Unknown Applicant'}</h1>
-            <p className="text-gray-600 mt-1">Lead ID: {lead.leadId}</p>
+            <div className="mt-3 flex flex-wrap items-center gap-3">
+              <h1 className="text-3xl font-semibold tracking-tight text-gray-900">{lead.applicantName || 'Unknown Applicant'}</h1>
+              <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">{sourceLabel} lead</span>
+            </div>
+            <p className="mt-1 text-xs text-gray-500">Lead ID: {lead.leadId}</p>
           </div>
-          <div className="flex gap-2">
-            {lead.convertedCustomerId && (
-              <Link
-                to={`/customers/${lead.convertedCustomerId}`}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-50 border border-green-200 text-green-700 font-medium hover:bg-green-100"
-              >
-                ✓ Converted to Customer
-              </Link>
-            )}
-            {!lead.convertedCustomerId && hasRight('leads.edit') && (
+
+          {lead.convertedCustomerId ? (
+            <Link
+              to={`/customers/${lead.convertedCustomerId}`}
+              className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-100"
+            >
+              ✓ Converted to customer
+            </Link>
+          ) : (
+            hasRight('leads.edit') && (
               <button
                 onClick={handleOpenConvertDialog}
-                className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-green-600 text-white font-medium hover:bg-green-700 transition-colors"
+                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
               >
-                Convert to Customer →
+                Convert to customer →
               </button>
-            )}
-          </div>
+            )
+          )}
         </div>
 
-        {/* Qualification Pipeline */}
-        <div className="grid grid-cols-3 gap-4">
-          <div className={`border rounded-lg p-4 ${getStatusColor(lead.cibilCheckStatus)}`}>
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-white bg-gray-800">
-                  {getStatusIcon(lead.cibilCheckStatus)}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-700">CIBIL Check</p>
-                <p className="text-lg font-semibold">{lead.cibilCheckStatus}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={`border rounded-lg p-4 ${getStatusColor(lead.rcCheckStatus)}`}>
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-white bg-gray-800">
-                  {getStatusIcon(lead.rcCheckStatus)}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-700">RC Check</p>
-                <p className="text-lg font-semibold">{lead.rcCheckStatus}</p>
-              </div>
-            </div>
-          </div>
-
-          <div className={`border rounded-lg p-4 ${getStatusColor(lead.leadStatus === 'QUALIFIED' ? 'PASSED' : 'NOT_STARTED')}`}>
-            <div className="flex items-center gap-3">
-              <div className="flex-shrink-0">
-                <span className="inline-flex items-center justify-center w-8 h-8 rounded-full font-bold text-white bg-gray-800">
-                  {getStatusIcon(lead.leadStatus === 'QUALIFIED' ? 'PASSED' : 'NOT_STARTED')}
-                </span>
-              </div>
-              <div className="flex-1">
-                <p className="text-sm font-medium text-gray-700">Lead Status</p>
-                <p className="text-lg font-semibold">{lead.leadStatus}</p>
-              </div>
-            </div>
-          </div>
+        <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+          <StatusTile label="CIBIL check" value={lead.cibilCheckStatus} tone={getCheckTone(lead.cibilCheckStatus)} />
+          <StatusTile label="RC check" value={lead.rcCheckStatus} tone={getCheckTone(lead.rcCheckStatus)} />
+          <StatusTile label="Lead status" value={lead.leadStatus} tone={getLeadStatusTone(lead.leadStatus)} />
         </div>
       </div>
 
       {/* Scrollable Content */}
       <div className="flex-1 overflow-y-auto">
-        <div className="max-w-7xl mx-auto px-6 py-8 space-y-6">
+        <div className="mx-auto max-w-7xl space-y-6 px-6 py-8">
 
-          {/* Last Comment Preview */}
-          {lastComment && (
-            <div className="border-l-4 border-indigo-500 bg-white rounded-lg p-4 shadow-sm">
-              <div className="flex items-center justify-between mb-2">
-                <p className="font-medium text-gray-900">Latest Comment</p>
-                <button
-                  onClick={() => setShowCommentsModal(true)}
-                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
-                >
-                  View All Comments →
-                </button>
+          {/* Comments */}
+          <div className="flex items-center justify-between gap-4 rounded-xl border border-gray-200 bg-white px-5 py-4 shadow-sm">
+            {lastComment ? (
+              <div className="min-w-0">
+                <p className="text-xs text-gray-500">
+                  {lastComment.createdByUserName} · {new Date(lastComment.createdAt).toLocaleDateString('en-IN')}
+                </p>
+                <p className="truncate text-sm text-gray-800">{lastComment.commentText}</p>
               </div>
-              <p className="text-xs text-gray-600 mb-2">
-                {lastComment.createdByUserName} • {new Date(lastComment.createdAt).toLocaleDateString('en-IN')}
-              </p>
-              <p className="text-sm text-gray-700 line-clamp-2">{lastComment.commentText}</p>
-            </div>
-          )}
+            ) : (
+              <p className="text-sm text-gray-500">No comments added yet</p>
+            )}
+            <button
+              onClick={() => setShowCommentsModal(true)}
+              className="shrink-0 text-sm font-medium text-indigo-600 hover:text-indigo-700"
+            >
+              {lastComment ? 'View all comments' : 'Add comment'}
+            </button>
+          </div>
 
-          {!lastComment && (
-            <div className="border border-dashed border-gray-300 bg-gray-50 rounded-lg p-4">
-              <div className="flex items-center justify-between">
-                <p className="text-sm text-gray-600">No comments yet</p>
-                <button
-                  onClick={() => setShowCommentsModal(true)}
-                  className="text-indigo-600 hover:text-indigo-700 text-sm font-medium"
-                >
-                  Add Comment →
-                </button>
-              </div>
-            </div>
-          )}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
 
-          {/* 2-Column Layout */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-
-            {/* Left Column: Assignment & Status */}
+            {/* Left column: assignment, status, information */}
             <div className="space-y-6">
-              <div className="border rounded-lg p-4 bg-white shadow-sm space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Lead Assignment</h3>
+              <Card title="Lead assignment">
                 <FormField
-                  label="Assign to Team Member"
+                  label="Assigned team member"
                   value={assignedToUserId}
                   onChange={setAssignedToUserId}
                   options={userOptions}
                   disabled={!canEdit}
                 />
                 {lead.assignedToUserName && (
-                  <p className="text-xs text-gray-600">Currently assigned to: <span className="font-medium">{lead.assignedToUserName}</span></p>
+                  <p className="text-xs text-gray-500">
+                    Currently assigned to <span className="font-medium text-gray-700">{lead.assignedToUserName}</span>
+                  </p>
                 )}
-              </div>
+              </Card>
 
-              <div className="border rounded-lg p-4 bg-white shadow-sm space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Lead Status</h3>
+              <Card title="Lead status">
                 <FormField
-                  label="Lifecycle Status"
+                  label="Lifecycle status"
                   value={leadStatus}
                   onChange={setLeadStatus}
                   options={LEAD_STATUSES}
                   disabled={!canEdit}
                 />
-              </div>
+              </Card>
 
-              <div className="border rounded-lg p-4 bg-white shadow-sm space-y-4">
-                <h3 className="text-sm font-semibold text-gray-900 border-b pb-2">Lead Info</h3>
-                <div className="space-y-3 text-sm">
-                  <div>
-                    <p className="text-gray-600">Source</p>
-                    <p className="font-medium text-gray-900">{lead.leadSource}</p>
-                  </div>
-                  <div>
-                    <p className="text-gray-600">Phone</p>
-                    <p className="font-medium text-gray-900">{lead.whatsappPhoneNumber}</p>
-                  </div>
-                  {lead.requestedLoanAmount && (
-                    <div>
-                      <p className="text-gray-600">Requested Loan Amount</p>
-                      <p className="font-medium text-gray-900">₹{lead.requestedLoanAmount.toLocaleString()}</p>
-                    </div>
-                  )}
-                </div>
-              </div>
+              <Card title="Lead information">
+                <dl className="grid grid-cols-3 gap-4 text-sm">
+                  <InfoItem label="Source" value={sourceLabel} />
+                  <InfoItem label="Phone" value={lead.whatsappPhoneNumber} />
+                  <InfoItem
+                    label="Requested amount"
+                    value={lead.requestedLoanAmount ? `₹${lead.requestedLoanAmount.toLocaleString('en-IN')}` : '-'}
+                  />
+                </dl>
+              </Card>
             </div>
 
-            {/* Right Column: Verifications */}
+            {/* Right column: verifications */}
             <div className="space-y-6">
-              {/* CIBIL Check Card */}
-              <div className="border rounded-lg p-4 bg-white shadow-sm space-y-3">
-                <div className="flex justify-between items-center border-b pb-2">
-                  <h3 className="text-sm font-semibold text-gray-900">CIBIL Verification</h3>
-                  <span className={`text-xs px-2 py-1 rounded font-medium border ${getStatusColor(lead.cibilCheckStatus)}`}>
-                    {lead.cibilCheckStatus}
-                  </span>
-                </div>
+              <Card title="CIBIL verification" action={<StatusPill status={lead.cibilCheckStatus} />}>
                 {getLastCheckTimestamp('CIBIL') && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                     <p className="font-medium">Last checked: {getLastCheckTimestamp('CIBIL')?.date} at {getLastCheckTimestamp('CIBIL')?.time}</p>
                     <p>By: {getLastCheckTimestamp('CIBIL')?.performer}</p>
                   </div>
                 )}
-                <div className="grid grid-cols-2 gap-2">
+                <div className="grid grid-cols-2 gap-4">
                   <FormField
                     label="Status"
                     value={cibilStatus}
@@ -588,7 +620,7 @@ export default function LeadDetailPage() {
                     disabled={!canEdit}
                   />
                   <FormField
-                    label="Score"
+                    label="Credit score"
                     value={cibilScore}
                     onChange={setCibilScore}
                     type="number"
@@ -596,38 +628,21 @@ export default function LeadDetailPage() {
                     disabled={!canEdit}
                   />
                 </div>
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
-                  <textarea
-                    value={cibilRemarks}
-                    onChange={(e) => setCibilRemarks(e.target.value)}
-                    disabled={!canEdit}
-                    placeholder="Credit history notes..."
-                    rows={2}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs disabled:bg-gray-100 disabled:text-gray-500"
-                  />
-                </div>
+                <TextAreaField
+                  label="Remarks"
+                  value={cibilRemarks}
+                  onChange={setCibilRemarks}
+                  placeholder="Add notes about credit history"
+                  disabled={!canEdit}
+                />
                 {canEdit && (
-                  <button
-                    onClick={() => handleInitiateAutomatedCheck('CIBIL')}
-                    disabled={automatedCibilInProgress}
-                    className="w-full px-2 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {automatedCibilInProgress ? '⏳ Processing...' : '🔄 Initiate Automated Check'}
-                  </button>
+                  <AutomatedCheckButton onClick={() => handleInitiateAutomatedCheck('CIBIL')} busy={automatedCibilInProgress} />
                 )}
-              </div>
+              </Card>
 
-              {/* RC Check Card */}
-              <div className="border rounded-lg p-4 bg-white shadow-sm space-y-3">
-                <div className="flex justify-between items-center border-b pb-2">
-                  <h3 className="text-sm font-semibold text-gray-900">RC Verification</h3>
-                  <span className={`text-xs px-2 py-1 rounded font-medium border ${getStatusColor(lead.rcCheckStatus)}`}>
-                    {lead.rcCheckStatus}
-                  </span>
-                </div>
+              <Card title="RC verification" action={<StatusPill status={lead.rcCheckStatus} />}>
                 {getLastCheckTimestamp('RC') && (
-                  <div className="bg-blue-50 border border-blue-200 rounded-lg px-3 py-2 text-xs text-blue-700">
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
                     <p className="font-medium">Last checked: {getLastCheckTimestamp('RC')?.date} at {getLastCheckTimestamp('RC')?.time}</p>
                     <p>By: {getLastCheckTimestamp('RC')?.performer}</p>
                   </div>
@@ -639,45 +654,33 @@ export default function LeadDetailPage() {
                   options={CHECK_STATUSES}
                   disabled={!canEdit}
                 />
-                <div>
-                  <label className="block text-xs font-medium text-gray-700 mb-1">Remarks</label>
-                  <textarea
-                    value={rcRemarks}
-                    onChange={(e) => setRcRemarks(e.target.value)}
-                    disabled={!canEdit}
-                    placeholder="Vehicle registration notes..."
-                    rows={2}
-                    className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs disabled:bg-gray-100 disabled:text-gray-500"
-                  />
-                </div>
+                <TextAreaField
+                  label="Remarks"
+                  value={rcRemarks}
+                  onChange={setRcRemarks}
+                  placeholder="Add notes about the vehicle registration"
+                  disabled={!canEdit}
+                />
                 {canEdit && (
-                  <button
-                    onClick={() => handleInitiateAutomatedCheck('RC')}
-                    disabled={automatedRcInProgress}
-                    className="w-full px-2 py-1.5 rounded-md bg-blue-600 text-white text-xs font-medium hover:bg-blue-700 disabled:opacity-50"
-                  >
-                    {automatedRcInProgress ? '⏳ Processing...' : '🔄 Initiate Automated Check'}
-                  </button>
+                  <AutomatedCheckButton onClick={() => handleInitiateAutomatedCheck('RC')} busy={automatedRcInProgress} />
                 )}
-              </div>
+              </Card>
             </div>
           </div>
         </div>
       </div>
 
-      {/* Fixed Footer */}
+      {/* Footer */}
       {canEdit && (
-        <div className="border-t border-gray-200 bg-white px-6 py-3 flex-shrink-0">
-          <div className="flex justify-between items-center">
-            <p className="text-sm text-gray-600">Any changes to assignment, status, and verification checks will be saved</p>
-            <button
-              onClick={handleSaveChanges}
-              disabled={loading}
-              className="px-6 py-2 rounded-lg bg-indigo-600 text-white text-sm font-medium hover:bg-indigo-700 disabled:opacity-50 transition-colors"
-            >
-              {loading ? 'Saving...' : 'Save Changes'}
-            </button>
-          </div>
+        <div className="flex flex-shrink-0 items-center justify-between gap-4 border-t border-gray-200 bg-white px-6 py-4">
+          <p className="text-sm text-gray-500">Changes to assignment, status and verification checks will be saved.</p>
+          <button
+            onClick={handleSaveChanges}
+            disabled={loading}
+            className="rounded-lg bg-indigo-600 px-6 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700 disabled:opacity-50"
+          >
+            {loading ? 'Saving…' : 'Save changes'}
+          </button>
         </div>
       )}
 

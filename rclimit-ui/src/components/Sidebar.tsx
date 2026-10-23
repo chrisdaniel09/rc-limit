@@ -3,25 +3,50 @@ import { useAuth } from '../hooks/useAuth';
 
 const navItems = [
   { to: '/', label: 'Dashboard', icon: '▦' },
-  { to: '/lenders', label: 'Lenders', icon: '🏦' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/loans', label: 'Loans', icon: '📄' },
   { to: '/partners', label: 'Partners', icon: '🤝' },
   { to: '/leads', label: 'Leads', icon: '📋' },
 ];
 
+// Temporarily hidden from the sidebar. Set to true to show the Accounting section again.
+const SHOW_ACCOUNTING = false;
+
 const accountingItems = [
   { to: '/accounting/accounts', label: 'Chart of Accounts', icon: '📊' },
   { to: '/accounting/journal-entries', label: 'Journal Entries', icon: '📝' },
   { to: '/accounting/balance-sheet', label: 'Balance Sheet', icon: '📈' },
   { to: '/accounting/posting-rules', label: 'Posting Rules', icon: '⚙' },
-  { to: '/accounting/particular-types', label: 'Line Item Types', icon: '☰' },
 ];
 
-const adminItems = [
-  { to: '/admin/roles', label: 'Roles', icon: '👑', right: 'roles.manage' },
-  { to: '/admin/rights', label: 'Rights', icon: '🔐', right: 'rights.manage' },
-  { to: '/admin/users', label: 'Users', icon: '👤', right: 'users.manage' },
+interface AdminItem {
+  to: string;
+  label: string;
+  icon: string;
+  right?: string;
+}
+
+interface AdminGroup {
+  heading: string;
+  items: AdminItem[];
+}
+
+const adminGroups: AdminGroup[] = [
+  {
+    heading: 'Masters',
+    items: [
+      { to: '/lenders', label: 'Lenders', icon: '🏦' },
+      { to: '/accounting/particular-types', label: 'Line Item Types', icon: '☰' },
+    ],
+  },
+  {
+    heading: 'Access Control',
+    items: [
+      { to: '/admin/users', label: 'Users', icon: '👤', right: 'users.manage' },
+      { to: '/admin/roles', label: 'Roles', icon: '👑', right: 'roles.manage' },
+      { to: '/admin/rights', label: 'Rights', icon: '🔐', right: 'rights.manage' },
+    ],
+  },
 ];
 
 interface SidebarProps {
@@ -31,6 +56,30 @@ interface SidebarProps {
 
 export default function Sidebar({ open, onClose }: SidebarProps) {
   const { logout, hasRight } = useAuth();
+
+  const renderLink = (item: { to: string; label: string; icon: string }, end = false) => (
+    <NavLink
+      key={item.to}
+      to={item.to}
+      end={end}
+      onClick={onClose}
+      className={({ isActive }) =>
+        `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
+          isActive
+            ? 'bg-indigo-600 text-white'
+            : 'text-gray-300 hover:bg-gray-800 hover:text-white'
+        }`
+      }
+    >
+      <span className="text-base">{item.icon}</span>
+      {item.label}
+    </NavLink>
+  );
+
+  const isVisible = (item: AdminItem) => !item.right || hasRight(item.right);
+  const visibleAdminGroups = adminGroups
+    .map((group) => ({ ...group, items: group.items.filter(isVisible) }))
+    .filter((group) => group.items.length > 0);
 
   return (
     <>
@@ -48,69 +97,29 @@ export default function Sidebar({ open, onClose }: SidebarProps) {
         </div>
 
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-          {navItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              end={item.to === '/'}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <span className="text-base">{item.icon}</span>
-              {item.label}
-            </NavLink>
-          ))}
+          {navItems.map((item) => renderLink(item, item.to === '/'))}
 
-          <div className="pt-4 pb-1">
-            <span className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Accounting</span>
-          </div>
-          {accountingItems.map((item) => (
-            <NavLink
-              key={item.to}
-              to={item.to}
-              onClick={onClose}
-              className={({ isActive }) =>
-                `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                  isActive
-                    ? 'bg-indigo-600 text-white'
-                    : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                }`
-              }
-            >
-              <span className="text-base">{item.icon}</span>
-              {item.label}
-            </NavLink>
-          ))}
+          {SHOW_ACCOUNTING && (
+            <>
+              <div className="pt-4 pb-1">
+                <span className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Accounting</span>
+              </div>
+              {accountingItems.map((item) => renderLink(item))}
+            </>
+          )}
 
-          {adminItems.some(item => hasRight(item.right)) && (
+          {visibleAdminGroups.length > 0 && (
             <>
               <div className="pt-4 pb-1">
                 <span className="px-3 text-xs font-semibold uppercase tracking-wider text-gray-500">Administration</span>
               </div>
-              {adminItems.map((item) => (
-                hasRight(item.right) && (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    onClick={onClose}
-                    className={({ isActive }) =>
-                      `flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors ${
-                        isActive
-                          ? 'bg-indigo-600 text-white'
-                          : 'text-gray-300 hover:bg-gray-800 hover:text-white'
-                      }`
-                    }
-                  >
-                    <span className="text-base">{item.icon}</span>
-                    {item.label}
-                  </NavLink>
-                )
+              {visibleAdminGroups.map((group) => (
+                <div key={group.heading} className="pt-2">
+                  <span className="px-3 text-[11px] font-medium uppercase tracking-wider text-gray-600">{group.heading}</span>
+                  <div className="mt-1 space-y-1">
+                    {group.items.map((item) => renderLink(item))}
+                  </div>
+                </div>
               ))}
             </>
           )}

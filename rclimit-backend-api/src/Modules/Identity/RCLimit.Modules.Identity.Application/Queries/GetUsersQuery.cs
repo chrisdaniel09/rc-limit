@@ -36,8 +36,8 @@ public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, PagedResult<U
         var query = _db.Users
             .Where(u => u.TenantId == _tenant.TenantId && u.IsActive)
             .Where(u => pattern == null
-                || EF.Functions.Like(u.Email.ToLower(), pattern)
-                || EF.Functions.Like(u.FullName.ToLower(), pattern));
+                || EF.Functions.Like((u.Email ?? "").ToLower(), pattern)
+                || EF.Functions.Like((u.FullName ?? "").ToLower(), pattern));
 
         var total = await query.CountAsync(cancellationToken);
 

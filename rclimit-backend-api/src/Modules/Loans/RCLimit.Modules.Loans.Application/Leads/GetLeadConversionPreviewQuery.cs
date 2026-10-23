@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Domain.Entities;
 
@@ -17,6 +18,7 @@ public record CustomerMatchDto(
     string LegalName,
     string? PhoneNumber,
     string MatchedOn,
+    IReadOnlyList<string> MatchReasons,
     int VehicleCount,
     int PreviousLeadCount,
     DateTime? LastLeadAt);
@@ -42,70 +44,10 @@ public class GetLeadConversionPreviewQueryHandler : IRequestHandler<GetLeadConve
         var lead = await _db.Leads
             .AsNoTracking()
             .FirstOrDefaultAsync(l => l.LeadId == request.LeadId && l.TenantId == _tenant.TenantId, cancellationToken)
-            ?? throw new Exception($"Lead {request.LeadId} not found");
+            ?? throw new NotFoundException("Lead", request.LeadId);
 
-        // Get customer matches (phone and name, phone first)
-        var phoneLastDigits = lead.ContactPhone?.TakeLast(10).ToString() ?? lead.WhatsappPhoneNumber?.TakeLast(10).ToString() ?? "";
-        var applicantNameLower = lead.ApplicantName?.ToLower() ?? "";
-
-        var phoneMatches = await _db.Customers
-            .AsNoTracking()
-            .Where(c => c.TenantId == _tenant.TenantId && c.PhoneNumber != null && c.PhoneNumber.EndsWith(phoneLastDigits))
-            .Select(c => new
-            {
-                c.CustomerId,
-                c.LegalName,
-                c.PhoneNumber,
-                MatchedOn = "PHONE"
-            })
-            .ToListAsync(cancellationToken);
-
-        var phoneMatchCustomerIds = phoneMatches.Select(pm => pm.CustomerId).ToHashSet();
-
-        var nameMatches = await _db.Customers
-            .AsNoTracking()
-            .Where(c => c.TenantId == _tenant.TenantId &&
-                (c.LegalName.ToLower().Contains(applicantNameLower) ||
-                 (c.TradeName != null && c.TradeName.ToLower().Contains(applicantNameLower))))
-            .Where(c => !phoneMatchCustomerIds.Contains(c.CustomerId))
-            .Select(c => new
-            {
-                c.CustomerId,
-                c.LegalName,
-                c.PhoneNumber,
-                MatchedOn = "NAME"
-            })
-            .ToListAsync(cancellationToken);
-
-        var allMatches = phoneMatches.Concat(nameMatches).ToList();
-
-        var customerMatches = new List<CustomerMatchDto>();
-        foreach (var match in allMatches)
-        {
-            var vehicleCount = await _db.CustomerVehicles
-                .AsNoTracking()
-                .CountAsync(cv => cv.CustomerId == match.CustomerId && cv.OwnedTo == null, cancellationToken);
-
-            var previousLeadCount = await _db.LeadCustomers
-                .AsNoTracking()
-                .CountAsync(lc => lc.CustomerId == match.CustomerId && lc.TenantId == _tenant.TenantId, cancellationToken);
-
-            var lastLeadAt = await _db.LeadCustomers
-                .AsNoTracking()
-                .Where(lc => lc.CustomerId == match.CustomerId && lc.TenantId == _tenant.TenantId)
-                .OrderByDescending(lc => lc.LinkedAt)
-                .Select(lc => (DateTime?)lc.LinkedAt)
-                .FirstOrDefaultAsync(cancellationToken);
-
-            customerMatches.Add(new CustomerMatchDto(
-                match.CustomerId,
-                match.LegalName,
-                match.PhoneNumber,
-                match.MatchedOn,
-                vehicleCount,
-                previousLeadCount,
-                lastLeadAt));
-        }
+        var candidates = await LeadCustomerMatcher.FindAsync(_db, _tenant.TenantId, lead, cancellationToken);
+        var customerMatches = await BuildMatchesAsync(candidates, cancellationToken);
 
         // Get vehicle preview
         var vehicleStatus = "NONE";
@@ -113,7 +55,7 @@ public class GetLeadConversionPreviewQueryHandler : IRequestHandler<GetLeadConve
 
         if (!string.IsNullOrWhiteSpace(lead.VehicleRegistrationNumber))
         {
-            var normalizedReg = NormalizeRegistrationNumber(lead.VehicleRegistrationNumber);
+            var normalizedReg = LeadCustomerMatcher.NormalizeRegistrationNumber(lead.VehicleRegistrationNumber);
             var vehicle = await _db.Vehicles
                 .Where(v => v.TenantId == _tenant.TenantId &&
                     v.RegistrationNumber.ToUpper() == normalizedReg)
@@ -158,8 +100,42 @@ public class GetLeadConversionPreviewQueryHandler : IRequestHandler<GetLeadConve
         return new LeadConversionPreviewDto(customerMatches, vehiclePreview);
     }
 
-    private static string NormalizeRegistrationNumber(string regNo)
+    // Three batched queries for the whole candidate list, instead of three queries per candidate.
+    private async Task<List<CustomerMatchDto>> BuildMatchesAsync(
+        IReadOnlyList<CustomerMatchCandidate> candidates,
+        CancellationToken cancellationToken)
     {
-        return System.Text.RegularExpressions.Regex.Replace(regNo.ToUpper().Trim(), @"[\s\-]", "");
+        if (candidates.Count == 0)
+            return [];
+
+        var customerIds = candidates.Select(c => c.CustomerId).ToList();
+
+        var vehicleCounts = await _db.CustomerVehicles
+            .AsNoTracking()
+            .Where(cv => cv.TenantId == _tenant.TenantId && customerIds.Contains(cv.CustomerId) && cv.OwnedTo == null)
+            .GroupBy(cv => cv.CustomerId)
+            .Select(g => new { CustomerId = g.Key, Count = g.Count() })
+            .ToDictionaryAsync(x => x.CustomerId, x => x.Count, cancellationToken);
+
+        var leadStats = await _db.LeadCustomers
+            .AsNoTracking()
+            .Where(lc => lc.TenantId == _tenant.TenantId && customerIds.Contains(lc.CustomerId))
+            .GroupBy(lc => lc.CustomerId)
+            .Select(g => new { CustomerId = g.Key, Count = g.Count(), LastLinkedAt = g.Max(lc => (DateTime?)lc.LinkedAt) })
+            .ToDictionaryAsync(x => x.CustomerId, cancellationToken);
+
+        return candidates.Select(c =>
+        {
+            leadStats.TryGetValue(c.CustomerId, out var stats);
+            return new CustomerMatchDto(
+                c.CustomerId,
+                c.LegalName,
+                c.PhoneNumber,
+                c.Reasons[0],
+                c.Reasons,
+                vehicleCounts.GetValueOrDefault(c.CustomerId),
+                stats?.Count ?? 0,
+                stats?.LastLinkedAt);
+        }).ToList();
     }
 }

@@ -54,8 +54,9 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
 
             customerId = request.ExistingCustomerId.Value;
             linkType = "LINKED_EXISTING";
-            // Determine match basis (could be from preview logic, but simplified here)
-            matchBasis = "MANUAL";
+            // Record the strongest reason the matcher gives for this customer. A customer picked by search is MANUAL.
+            var candidates = await LeadCustomerMatcher.FindAsync(_db, _tenant.TenantId, lead, cancellationToken);
+            matchBasis = candidates.FirstOrDefault(c => c.CustomerId == customerId)?.Reasons[0] ?? "MANUAL";
         }
         else
         {
@@ -123,7 +124,7 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
 
     private async Task<Guid?> HandleVehicleConversion(Lead lead, Guid customerId, bool confirmTransfer, CancellationToken cancellationToken)
     {
-        var normalizedReg = NormalizeRegistrationNumber(lead.VehicleRegistrationNumber!);
+        var normalizedReg = LeadCustomerMatcher.NormalizeRegistrationNumber(lead.VehicleRegistrationNumber!);
         var vehicle = await _db.Vehicles
             .Where(v => v.TenantId == _tenant.TenantId &&
                 v.RegistrationNumber.ToUpper() == normalizedReg)
@@ -221,11 +222,6 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
 
             return vehicle.VehicleId;
         }
-    }
-
-    private static string NormalizeRegistrationNumber(string regNo)
-    {
-        return System.Text.RegularExpressions.Regex.Replace(regNo.ToUpper().Trim(), @"[\s\-]", "");
     }
 
     private static string? DetermineCibilTier(int? score)

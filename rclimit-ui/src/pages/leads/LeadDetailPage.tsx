@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
 import { useFetch } from '../../hooks/useFetch';
 import { apiPut, apiPost, apiGet } from '../../api/client';
@@ -36,10 +36,24 @@ interface CustomerMatch {
   legalName: string;
   phoneNumber: string | null;
   matchedOn: string;
+  matchReasons: string[];
   vehicleCount: number;
   previousLeadCount: number;
   lastLeadAt: string | null;
 }
+
+interface CustomerOption {
+  customerId: string;
+  legalName: string;
+  phoneNumber: string | null;
+  customerType: string;
+}
+
+const REASON_STYLES: Record<string, string> = {
+  PHONE: 'bg-blue-100 text-blue-800',
+  VEHICLE: 'bg-green-100 text-green-800',
+  NAME: 'bg-amber-100 text-amber-800',
+};
 
 interface VehiclePreview {
   registrationNumber: string;
@@ -135,6 +149,39 @@ export default function LeadDetailPage() {
   const [confirmVehicleTransfer, setConfirmVehicleTransfer] = useState(false);
   const [conversionPreview, setConversionPreview] = useState<ConversionPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [searchResults, setSearchResults] = useState<CustomerOption[]>([]);
+  const [searchingCustomers, setSearchingCustomers] = useState(false);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const latestCustomerSearch = useRef(0);
+
+  // Search all customers (for matches the automatic suggestions missed). Debounced, and only the latest search applies.
+  useEffect(() => {
+    if (!showConvertDialog || conversionMode !== 'existing') return;
+
+    const term = customerSearch.trim();
+    const requestId = ++latestCustomerSearch.current;
+    if (term.length < 2) {
+      setSearchResults([]);
+      setSearchingCustomers(false);
+      return;
+    }
+
+    setSearchingCustomers(true);
+    const timer = setTimeout(async () => {
+      try {
+        const query = new URLSearchParams({ search: term, pageSize: '10', sortBy: 'legalName' });
+        const response = await apiGet<{ data: CustomerOption[] }>(`/api/v1/customers?${query}`);
+        if (requestId === latestCustomerSearch.current) setSearchResults(response.data);
+      } catch {
+        if (requestId === latestCustomerSearch.current) setSearchResults([]);
+      } finally {
+        if (requestId === latestCustomerSearch.current) setSearchingCustomers(false);
+      }
+    }, 300);
+
+    return () => clearTimeout(timer);
+  }, [customerSearch, showConvertDialog, conversionMode]);
 
   // Sync form state when a freshly fetched lead arrives (adjusting state during render, not in an effect)
   const [syncedLead, setSyncedLead] = useState<Lead | null>(null);
@@ -168,8 +215,8 @@ export default function LeadDetailPage() {
     setLoadingPreview(true);
     try {
       const url = `/api/v1/leads/${leadId}/conversion-preview${customerId ? `?customerId=${customerId}` : ''}`;
-      const response = await apiGet<ConversionPreview>(url);
-      setConversionPreview(response);
+      const response = await apiGet<{ data: ConversionPreview }>(url);
+      setConversionPreview(response.data);
     } catch (err) {
       console.error('Failed to fetch conversion preview:', err);
       alert('Failed to load conversion preview');
@@ -182,14 +229,18 @@ export default function LeadDetailPage() {
     setShowConvertDialog(true);
     setConversionMode('new');
     setSelectedCustomerId(null);
+    setSelectedCustomer(null);
+    setCustomerSearch('');
+    setSearchResults([]);
     setConfirmVehicleTransfer(false);
     await fetchConversionPreview();
   };
 
-  const handleSelectExistingCustomer = async (customerId: string) => {
-    setSelectedCustomerId(customerId);
+  const handleSelectExistingCustomer = async (customer: Pick<CustomerOption, 'customerId' | 'legalName' | 'phoneNumber'>) => {
+    setSelectedCustomerId(customer.customerId);
+    setSelectedCustomer({ ...customer, customerType: '' });
     setConfirmVehicleTransfer(false);
-    await fetchConversionPreview(customerId);
+    await fetchConversionPreview(customer.customerId);
   };
 
   const handleConvert = async () => {
@@ -227,7 +278,8 @@ export default function LeadDetailPage() {
       navigate(`/customers/${response.data.customerId}`);
     } catch (err) {
       console.error('Failed to convert lead:', err);
-      alert('Failed to convert lead. Please try again.');
+      // The server's message carries the business rule (for example, an open loan blocks the transfer).
+      alert(err instanceof Error ? err.message : 'Failed to convert lead. Please try again.');
     } finally {
       setLoading(false);
     }
@@ -698,7 +750,8 @@ export default function LeadDetailPage() {
                       onChange={(e) => {
                         setConversionMode(e.target.value as 'new' | 'existing');
                         setSelectedCustomerId(null);
-                        setConversionPreview(null);
+                        setSelectedCustomer(null);
+                        fetchConversionPreview();
                       }}
                       className="w-4 h-4"
                     />
@@ -735,6 +788,43 @@ export default function LeadDetailPage() {
               {/* Existing Customer Mode */}
               {conversionMode === 'existing' && (
                 <div className="space-y-4">
+                  <div className="space-y-2">
+                    <label className="block text-sm font-semibold text-gray-900">Search all customers</label>
+                    <input
+                      type="text"
+                      value={customerSearch}
+                      onChange={(e) => setCustomerSearch(e.target.value)}
+                      placeholder="Type at least 2 characters of name or phone"
+                      className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+                    />
+                    {searchingCustomers && <p className="text-xs text-gray-500">Searching...</p>}
+                    {!searchingCustomers && customerSearch.trim().length >= 2 && searchResults.length === 0 && (
+                      <p className="text-xs text-gray-600">No customers match &quot;{customerSearch.trim()}&quot;.</p>
+                    )}
+                    {searchResults.length > 0 && (
+                      <div className="space-y-2 max-h-48 overflow-y-auto">
+                        {searchResults.map((customer) => (
+                          <button
+                            key={customer.customerId}
+                            type="button"
+                            onClick={() => handleSelectExistingCustomer(customer)}
+                            className={`w-full text-left p-3 rounded-lg border transition-all ${
+                              selectedCustomerId === customer.customerId
+                                ? 'border-indigo-500 bg-indigo-50'
+                                : 'border-gray-200 bg-white hover:border-indigo-300'
+                            }`}
+                          >
+                            <p className="font-medium text-gray-900">{customer.legalName}</p>
+                            <p className="text-xs text-gray-600">{customer.phoneNumber ?? '-'} · {customer.customerType}</p>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    {selectedCustomer && (
+                      <p className="text-xs text-gray-700">Selected: <span className="font-semibold">{selectedCustomer.legalName}</span></p>
+                    )}
+                  </div>
+
                   {loadingPreview && (
                     <div className="text-center py-8">
                       <div className="inline-block h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-indigo-600"></div>
@@ -752,7 +842,7 @@ export default function LeadDetailPage() {
                             {conversionPreview.customerMatches.map((match) => (
                               <button
                                 key={match.customerId}
-                                onClick={() => handleSelectExistingCustomer(match.customerId)}
+                                onClick={() => handleSelectExistingCustomer(match)}
                                 className={`w-full text-left p-3 rounded-lg border transition-all ${
                                   selectedCustomerId === match.customerId
                                     ? 'border-indigo-500 bg-indigo-50'
@@ -765,11 +855,13 @@ export default function LeadDetailPage() {
                                     <p className="text-xs text-gray-600">{match.phoneNumber}</p>
                                   </div>
                                   <div className="text-right">
-                                    <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
-                                      match.matchedOn === 'PHONE' ? 'bg-blue-100 text-blue-800' : 'bg-amber-100 text-amber-800'
-                                    }`}>
-                                      {match.matchedOn}
-                                    </span>
+                                    <div className="flex flex-wrap justify-end gap-1">
+                                      {match.matchReasons.map((reason) => (
+                                        <span key={reason} className={`inline-block px-2 py-1 text-xs font-medium rounded ${REASON_STYLES[reason] ?? 'bg-gray-100 text-gray-800'}`}>
+                                          {reason}
+                                        </span>
+                                      ))}
+                                    </div>
                                   </div>
                                 </div>
                                 <div className="flex gap-4 mt-2 text-xs text-gray-600">
@@ -783,7 +875,7 @@ export default function LeadDetailPage() {
                             ))}
                           </div>
                         ) : (
-                          <p className="text-sm text-gray-600 py-4">No matching customers found</p>
+                          <p className="text-sm text-gray-600 py-4">No suggested customers. Search above.</p>
                         )}
                       </div>
 

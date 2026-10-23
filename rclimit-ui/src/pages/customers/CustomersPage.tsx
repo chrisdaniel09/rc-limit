@@ -7,6 +7,8 @@ import Badge from '../../components/Badge';
 import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
+import PhoneInput from '../../components/PhoneInput';
+import { toPhoneNumber } from '../../utils/phone';
 
 interface Customer {
   customerId: string;
@@ -74,7 +76,7 @@ export default function CustomersPage() {
         legalName: form.legalName,
         tradeName: form.tradeName,
         customerType: form.customerType,
-        phoneNumber: form.phoneNumber,
+        phoneNumber: toPhoneNumber(form.phoneNumber),
         assignedCeiling: parseFloat(form.assignedCeiling),
       });
       setShowModal(false);
@@ -103,7 +105,7 @@ export default function CustomersPage() {
           <FormField label="Legal Name" value={form.legalName} onChange={(v) => setForm({ ...form, legalName: v })} required />
           <FormField label="Trade Name" value={form.tradeName} onChange={(v) => setForm({ ...form, tradeName: v })} />
           <FormField label="Type" value={form.customerType} onChange={(v) => setForm({ ...form, customerType: v })} options={[{ value: 'DEALER', label: 'Dealer' }, { value: 'INDIVIDUAL', label: 'Individual' }]} />
-          <FormField label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
+          <PhoneInput label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
           <FormField label="Assigned Sub-Limit (₹)" type="number" value={form.assignedCeiling} onChange={(v) => setForm({ ...form, assignedCeiling: v })} required />
           <div className="flex justify-end gap-3 mt-6">
             <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>

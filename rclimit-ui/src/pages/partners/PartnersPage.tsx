@@ -6,6 +6,8 @@ import Badge from '../../components/Badge';
 import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
+import PhoneInput from '../../components/PhoneInput';
+import { toPhoneNumber } from '../../utils/phone';
 
 interface Partner {
   partnerId: string;
@@ -37,7 +39,7 @@ export default function PartnersPage() {
       await apiPost('/api/v1/partners', {
         legalName: form.legalName,
         partnerType: form.partnerType,
-        phoneNumber: form.phoneNumber,
+        phoneNumber: toPhoneNumber(form.phoneNumber),
         defaultCommissionSplitPct: parseFloat(form.defaultCommissionSplitPct),
       });
       setShowModal(false);
@@ -65,7 +67,7 @@ export default function PartnersPage() {
         <form onSubmit={handleSubmit}>
           <FormField label="Legal Name" value={form.legalName} onChange={(v) => setForm({ ...form, legalName: v })} required />
           <FormField label="Type" value={form.partnerType} onChange={(v) => setForm({ ...form, partnerType: v })} options={[{ value: 'SUB_BROKER', label: 'Sub-Broker' }, { value: 'DSA_AGENT', label: 'DSA Agent' }]} />
-          <FormField label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
+          <PhoneInput label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
           <FormField label="Commission Split (%)" type="number" value={form.defaultCommissionSplitPct} onChange={(v) => setForm({ ...form, defaultCommissionSplitPct: v })} required />
           <div className="flex justify-end gap-3 mt-6">
             <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>

@@ -151,10 +151,10 @@ VALUES ('b2c3d4e5-f6a7-8901-bcde-f12345678901', 'ffffffff-ffff-ffff-ffff-fffffff
 
 
 -- 3. Seed default options (run per tenant, replace <tenant_id> with actual value)
-INSERT INTO lender_disbursed_to_options (option_id, tenant_id, code, label, sort_order)
+INSERT INTO lender_disbursed_to_options (option_id, tenant_id, code, label, sort_order, allows_disbursal_line_items)
 VALUES
-    (gen_random_uuid(), '<tenant_id>', 'CUSTOMER', 'Customer', 1),
-    (gen_random_uuid(), '<tenant_id>', 'ANNA_FINANCE', 'AnnaFinance', 2);
+    (gen_random_uuid(), '<tenant_id>', 'CUSTOMER', 'Customer', 1, FALSE),
+    (gen_random_uuid(), '<tenant_id>', 'ANNA_FINANCE', 'AnnaFinance', 2, TRUE);
 
 
 

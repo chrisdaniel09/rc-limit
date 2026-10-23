@@ -1,5 +1,6 @@
 using MediatR;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Validation;
 using RCLimit.Modules.Partners.Application.Abstractions;
 using RCLimit.Modules.Partners.Domain.Entities;
 
@@ -25,13 +26,15 @@ public class CreatePartnerCommandHandler : IRequestHandler<CreatePartnerCommand,
 
     public async Task<Guid> Handle(CreatePartnerCommand request, CancellationToken cancellationToken)
     {
+        var phoneNumber = IndianMobileNumber.ValidateOptional(request.PhoneNumber, "Phone");
+
         var partner = new Partner
         {
             PartnerId = Guid.NewGuid(),
             TenantId = _tenant.TenantId,
             PartnerType = request.PartnerType,
             LegalName = request.LegalName,
-            PhoneNumber = request.PhoneNumber,
+            PhoneNumber = phoneNumber,
             Email = request.Email,
             DefaultCommissionSplitPct = request.DefaultCommissionSplitPct
         };

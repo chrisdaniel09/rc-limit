@@ -4,6 +4,8 @@ import { apiPost, apiPut } from '../../api/client';
 import Modal from '../../components/Modal';
 import DataTable, { type Column } from '../../components/DataTable';
 import FormField from '../../components/FormField';
+import PhoneInput from '../../components/PhoneInput';
+import { toPhoneNumber } from '../../utils/phone';
 
 interface Role {
   roleId: string;
@@ -162,7 +164,7 @@ export default function UsersPage() {
       await apiPost('/api/v1/users', {
         email: createForm.email.trim(),
         fullName: createForm.fullName.trim(),
-        phoneNumber: createForm.phoneNumber.trim() || null,
+        phoneNumber: toPhoneNumber(createForm.phoneNumber),
         password: createForm.password,
         roleIds: createRoleIds,
       });
@@ -235,7 +237,7 @@ export default function UsersPage() {
 
           <FormField label="Email" type="email" value={createForm.email} onChange={(v) => setCreateForm({ ...createForm, email: v })} required />
           <FormField label="Full Name" value={createForm.fullName} onChange={(v) => setCreateForm({ ...createForm, fullName: v })} required />
-          <FormField label="Phone Number" value={createForm.phoneNumber} onChange={(v) => setCreateForm({ ...createForm, phoneNumber: v })} placeholder="+919876543210" />
+          <PhoneInput label="Phone Number" value={createForm.phoneNumber} onChange={(v) => setCreateForm({ ...createForm, phoneNumber: v })} />
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Initial Password" type="password" value={createForm.password} onChange={(v) => setCreateForm({ ...createForm, password: v })} required placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} />
             <FormField label="Confirm Password" type="password" value={createForm.confirmPassword} onChange={(v) => setCreateForm({ ...createForm, confirmPassword: v })} required />

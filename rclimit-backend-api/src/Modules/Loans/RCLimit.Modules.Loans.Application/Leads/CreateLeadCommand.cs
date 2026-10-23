@@ -1,5 +1,6 @@
 using MediatR;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Validation;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Domain.Entities;
 
@@ -29,14 +30,17 @@ public class CreateLeadCommandHandler : IRequestHandler<CreateLeadCommand, Guid>
 
     public async Task<Guid> Handle(CreateLeadCommand request, CancellationToken cancellationToken)
     {
+        var whatsappPhoneNumber = IndianMobileNumber.Validate(request.WhatsappPhoneNumber, "WhatsApp phone");
+        var contactPhone = IndianMobileNumber.ValidateOptional(request.ContactPhone, "Contact phone");
+
         var lead = new Lead
         {
             LeadId = Guid.NewGuid(),
             TenantId = _tenant.TenantId,
             LeadSource = request.LeadSource,
             ReferredByUserId = request.ReferredByUserId,
-            WhatsappPhoneNumber = request.WhatsappPhoneNumber,
-            ContactPhone = request.ContactPhone,
+            WhatsappPhoneNumber = whatsappPhoneNumber,
+            ContactPhone = contactPhone,
             ApplicantName = request.ApplicantName,
             RequestedLoanAmount = request.RequestedLoanAmount,
             VehicleRegistrationNumber = request.VehicleRegistrationNumber,

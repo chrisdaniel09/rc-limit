@@ -1,5 +1,6 @@
 using MediatR;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Validation;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Domain.Entities;
 
@@ -29,6 +30,8 @@ public class CreateCustomerCommandHandler : IRequestHandler<CreateCustomerComman
 
     public async Task<Guid> Handle(CreateCustomerCommand request, CancellationToken cancellationToken)
     {
+        var phoneNumber = IndianMobileNumber.ValidateOptional(request.PhoneNumber, "Phone");
+
         var customer = new Customer
         {
             CustomerId = Guid.NewGuid(),
@@ -36,7 +39,7 @@ public class CreateCustomerCommandHandler : IRequestHandler<CreateCustomerComman
             CustomerType = request.CustomerType,
             LegalName = request.LegalName,
             TradeName = request.TradeName,
-            PhoneNumber = request.PhoneNumber,
+            PhoneNumber = phoneNumber,
             Email = request.Email,
             PanNumber = request.PanNumber,
             Gstin = request.Gstin

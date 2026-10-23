@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
+using RCLimit.BuildingBlocks.Domain.Validation;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Contracts.Dtos;
 using RCLimit.Modules.Identity.Domain.Entities;
@@ -31,6 +32,7 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, UserD
     public async Task<UserDto> Handle(CreateUserCommand request, CancellationToken cancellationToken)
     {
         PasswordPolicy.Validate(request.Password);
+        var phoneNumber = IndianMobileNumber.ValidateOptional(request.PhoneNumber, "Phone number");
 
         var tenantId = _tenant.TenantId;
         var email = request.Email.Trim();
@@ -47,7 +49,7 @@ public class CreateUserCommandHandler : IRequestHandler<CreateUserCommand, UserD
             throw new BusinessRuleException("One or more selected roles do not exist or are inactive.");
 
         var (hash, salt) = _passwordHasher.HashPassword(request.Password);
-        var user = User.Create(tenantId, email, request.FullName.Trim(), request.PhoneNumber, hash, salt);
+        var user = User.Create(tenantId, email, request.FullName.Trim(), phoneNumber, hash, salt);
         _db.Users.Add(user);
 
         _db.UserRoles.AddRange(roleIds.Select(roleId => new UserRole

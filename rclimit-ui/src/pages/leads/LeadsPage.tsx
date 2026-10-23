@@ -7,6 +7,8 @@ import Badge from '../../components/Badge';
 import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
+import PhoneInput from '../../components/PhoneInput';
+import { toPhoneNumber } from '../../utils/phone';
 
 interface Lead {
   leadId: string;
@@ -84,8 +86,8 @@ export default function LeadsPage() {
         leadSource: form.leadSource,
         referredByUserId: form.referredByUserId || null,
         applicantName: form.applicantName,
-        whatsappPhoneNumber: form.whatsappPhoneNumber,
-        contactPhone: form.contactPhone || null,
+        whatsappPhoneNumber: toPhoneNumber(form.whatsappPhoneNumber),
+        contactPhone: toPhoneNumber(form.contactPhone),
         requestedLoanAmount: form.requestedLoanAmount ? parseFloat(form.requestedLoanAmount) : null,
         vehicleRegistrationNumber: form.vehicleRegistrationNumber || null,
         notes: form.notes || null,
@@ -151,8 +153,8 @@ export default function LeadsPage() {
             <FormField label="Brought In By (Staff)" value={form.referredByUserId} onChange={(v) => setForm({ ...form, referredByUserId: v })} options={userOptions} />
           </div>
           <div className="grid grid-cols-2 gap-3">
-            <FormField label="WhatsApp Phone" value={form.whatsappPhoneNumber} onChange={(v) => setForm({ ...form, whatsappPhoneNumber: v })} required placeholder="+919876543210" />
-            <FormField label="Contact Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} placeholder="Alternate number" />
+            <PhoneInput label="WhatsApp Phone" value={form.whatsappPhoneNumber} onChange={(v) => setForm({ ...form, whatsappPhoneNumber: v })} required />
+            <PhoneInput label="Contact Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
           </div>
           <FormField label="Requested Loan Amount (₹)" type="number" value={form.requestedLoanAmount} onChange={(v) => setForm({ ...form, requestedLoanAmount: v })} />
           <FormField label="Vehicle Registration #" value={form.vehicleRegistrationNumber} onChange={(v) => setForm({ ...form, vehicleRegistrationNumber: v })} placeholder="GJ05BX6637" />

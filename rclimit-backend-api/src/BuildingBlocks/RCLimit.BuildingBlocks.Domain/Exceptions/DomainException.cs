@@ -19,6 +19,12 @@ public class NotFoundException : DomainException
         : base($"{entity} with identifier '{id}' was not found.", "NOT_FOUND", 404) { }
 }
 
+public class ValidationException : DomainException
+{
+    public ValidationException(string message, string errorCode = "VALIDATION_FAILED")
+        : base(message, errorCode, 400) { }
+}
+
 public class BusinessRuleException : DomainException
 {
     public BusinessRuleException(string message, string errorCode = "BUSINESS_RULE_VIOLATION")

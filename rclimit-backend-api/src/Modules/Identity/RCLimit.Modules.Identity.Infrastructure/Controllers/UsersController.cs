@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.Modules.Identity.Application.Queries;
 using RCLimit.Modules.Identity.Application.Users;
@@ -15,12 +16,19 @@ public class UsersController(ISender sender) : ControllerBase
 {
     [HttpGet]
     [HasRight("users.manage")]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = PageQuery.DefaultPageSize,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? search = null)
     {
-        var result = await sender.Send(new GetUsersQuery());
+        var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
+        var result = await sender.Send(new GetUsersQuery(paging));
         return Ok(new HateoasResponse<object>
         {
-            Data = result,
+            Data = result.Items,
+            Meta = new PageMeta(result.Page, result.PageSize, result.TotalCount, result.TotalPages),
             Links =
             [
                 new("/api/v1/users", "self", "GET"),

@@ -6,6 +6,8 @@ import DataTable, { type Column } from '../../components/DataTable';
 import FormField from '../../components/FormField';
 import PhoneInput from '../../components/PhoneInput';
 import { toPhoneNumber } from '../../utils/phone';
+import { useListState } from '../../hooks/useListState';
+import Pagination from '../../components/Pagination';
 
 interface Role {
   roleId: string;
@@ -65,7 +67,13 @@ function RoleChecklist({
 }
 
 export default function UsersPage() {
-  const { data: users, loading, refetch } = useFetch<User[]>('/api/v1/users', []);
+  const list = useListState({
+    storageKey: 'users.pageSize',
+    defaultSortBy: 'email',
+    defaultSortDir: 'asc',
+    initialFilters: {},
+  });
+  const { data: users, meta, loading, refetch } = useFetch<User[]>(`/api/v1/users?${list.query}`, []);
   const { data: roles } = useFetch<Role[]>('/api/v1/roles', []);
 
   // Edit (roles + credential reset) state
@@ -169,7 +177,8 @@ export default function UsersPage() {
         roleIds: createRoleIds,
       });
       setShowCreate(false);
-      refetch();
+      if (list.page === 1) refetch();
+      else list.setPage(1);
     } catch (err: any) {
       setCreateError(err.message || 'Failed to create user');
     } finally {
@@ -178,8 +187,8 @@ export default function UsersPage() {
   };
 
   const columns: Column<User>[] = [
-    { key: 'email', header: 'Email' },
-    { key: 'fullName', header: 'Full Name' },
+    { key: 'email', header: 'Email', sortKey: 'email' },
+    { key: 'fullName', header: 'Full Name', sortKey: 'fullName' },
     {
       key: 'roles',
       header: 'Roles',
@@ -218,17 +227,30 @@ export default function UsersPage() {
           </button>
         </div>
 
-        {loading ? (
-          <div className="text-center py-8 text-gray-500 mt-4">Loading users...</div>
-        ) : (
-          <div className="mt-4">
-            <DataTable
-              columns={columns}
-              data={users || []}
-              onRowClick={openEdit}
-            />
-          </div>
-        )}
+        <div className="mt-4">
+          <DataTable
+            columns={columns}
+            data={users || []}
+            loading={loading}
+            onRowClick={openEdit}
+            searchPlaceholder="Search email or name..."
+            server={{
+              searchValue: list.searchInput,
+              onSearchChange: list.setSearchInput,
+              sortBy: list.sortBy,
+              sortDir: list.sortDir,
+              onSort: list.updateSort,
+              footer: (
+                <Pagination
+                  meta={meta}
+                  pageSize={list.pageSize}
+                  onPageChange={list.setPage}
+                  onPageSizeChange={list.setPageSize}
+                />
+              ),
+            }}
+          />
+        </div>
       </div>
 
       <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="New User">

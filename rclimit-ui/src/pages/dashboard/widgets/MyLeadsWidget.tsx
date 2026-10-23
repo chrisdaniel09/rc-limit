@@ -27,7 +27,8 @@ const formatDate = (dateStr: string) =>
 
 export default function MyLeadsWidget() {
   const summary = useFetch<MyLeadsSummary>('/api/v1/dashboard/me');
-  const leads = useFetch<MyLead[]>('/api/v1/leads?assignedToMe=true');
+  // Shows the newest 25 assigned leads. The summary card above carries the full count.
+  const leads = useFetch<MyLead[]>('/api/v1/leads?assignedToMe=true&pageSize=25');
 
   const refresh = () => {
     summary.refetch();

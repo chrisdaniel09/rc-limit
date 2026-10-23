@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.Modules.Loans.Application.DisbursalLineItems;
 using RCLimit.Modules.Loans.Application.Loans;
 
@@ -21,12 +22,20 @@ public class LoansController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? loanStatus = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = PageQuery.DefaultPageSize,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _sender.Send(new GetLoansQuery());
+        var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
+        var result = await _sender.Send(new GetLoansQuery(loanStatus, paging));
         return Ok(new HateoasResponse<object>
         {
-            Data = result,
+            Data = result.Items,
+            Meta = new PageMeta(result.Page, result.PageSize, result.TotalCount, result.TotalPages),
             Links =
             [
                 new("/api/v1/loans", "self", "GET"),

@@ -1,15 +1,28 @@
+using System.Linq.Expressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.Modules.Identity.Contracts;
 using RCLimit.Modules.Loans.Application.Abstractions;
+using RCLimit.Modules.Loans.Domain.Entities;
 
 namespace RCLimit.Modules.Loans.Application.Leads;
 
-public record GetLeadsQuery(bool AssignedToMe = false) : IRequest<List<LeadDto>>;
+public record GetLeadsQuery(bool AssignedToMe, string? LeadStatus, PageQuery Paging) : IRequest<PagedResult<LeadDto>>;
 
-public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>>
+public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, PagedResult<LeadDto>>
 {
+    private static readonly Dictionary<string, Expression<Func<Lead, object?>>> SortMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["applicantName"] = l => l.ApplicantName,
+        ["leadSource"] = l => l.LeadSource,
+        ["cibilCheckStatus"] = l => l.CibilCheckStatus,
+        ["rcCheckStatus"] = l => l.RcCheckStatus,
+        ["leadStatus"] = l => l.LeadStatus,
+        ["createdAt"] = l => l.CreatedAt,
+    };
+
     private readonly ILoansDbContext _db;
     private readonly ITenantContext _tenant;
     private readonly IIdentityModuleApi _identity;
@@ -21,16 +34,30 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
         _identity = identity;
     }
 
-    public async Task<List<LeadDto>> Handle(GetLeadsQuery request, CancellationToken cancellationToken)
+    public async Task<PagedResult<LeadDto>> Handle(GetLeadsQuery request, CancellationToken cancellationToken)
     {
-        var leads = await _db.Leads
+        var paging = request.Paging;
+        var pattern = paging.SearchTerm is { } search ? PageQuery.ContainsPattern(search) : null;
+
+        var query = _db.Leads
             .Where(l => l.TenantId == _tenant.TenantId)
             .Where(l => !request.AssignedToMe || l.AssignedToUserId == _tenant.UserId)
-            .OrderByDescending(l => l.CreatedAt)
+            .Where(l => string.IsNullOrEmpty(request.LeadStatus) || l.LeadStatus == request.LeadStatus)
+            .Where(l => pattern == null
+                || EF.Functions.Like((l.ApplicantName ?? "").ToLower(), pattern)
+                || EF.Functions.Like(l.WhatsappPhoneNumber.ToLower(), pattern)
+                || EF.Functions.Like((l.ContactPhone ?? "").ToLower(), pattern)
+                || EF.Functions.Like((l.VehicleRegistrationNumber ?? "").ToLower(), pattern));
+
+        var total = await query.CountAsync(cancellationToken);
+
+        var leads = await query
+            .ApplySort(paging, SortMap, ("createdAt", true), l => l.LeadId)
+            .Skip(paging.Skip)
+            .Take(paging.NormalizedPageSize)
             .ToListAsync(cancellationToken);
 
         var userIds = leads
-            .Where(l => l.ReferredByUserId.HasValue || l.AssignedToUserId.HasValue)
             .SelectMany(l => new[] { l.ReferredByUserId, l.AssignedToUserId }.Where(id => id.HasValue).Cast<Guid>())
             .Distinct()
             .ToList();
@@ -43,7 +70,7 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
                 userNames[uid] = user.FullName ?? user.Email ?? uid.ToString();
         }
 
-        return leads.Select(l => new LeadDto(
+        var items = leads.Select(l => new LeadDto(
             l.LeadId,
             l.LeadSource,
             l.ReferredByUserId,
@@ -63,5 +90,7 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, List<LeadDto>
             l.CibilScorePreview,
             l.ConvertedCustomerId,
             l.CreatedAt)).ToList();
+
+        return new PagedResult<LeadDto>(items, paging.NormalizedPage, paging.NormalizedPageSize, total);
     }
 }

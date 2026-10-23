@@ -1,15 +1,24 @@
+using System.Linq.Expressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.Modules.Identity.Application.Abstractions;
 using RCLimit.Modules.Identity.Contracts.Dtos;
+using RCLimit.Modules.Identity.Domain.Entities;
 
 namespace RCLimit.Modules.Identity.Application.Queries;
 
-public record GetUsersQuery : IRequest<List<UserDto>>;
+public record GetUsersQuery(PageQuery Paging) : IRequest<PagedResult<UserDto>>;
 
-public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, List<UserDto>>
+public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, PagedResult<UserDto>>
 {
+    private static readonly Dictionary<string, Expression<Func<User, object?>>> SortMap = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["email"] = u => u.Email,
+        ["fullName"] = u => u.FullName,
+    };
+
     private readonly IIdentityDbContext _db;
     private readonly ITenantContext _tenant;
 
@@ -19,10 +28,24 @@ public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, List<UserDto>
         _tenant = tenant;
     }
 
-    public async Task<List<UserDto>> Handle(GetUsersQuery request, CancellationToken cancellationToken)
+    public async Task<PagedResult<UserDto>> Handle(GetUsersQuery request, CancellationToken cancellationToken)
     {
-        var users = await _db.Users
+        var paging = request.Paging;
+        var pattern = paging.SearchTerm is { } search ? PageQuery.ContainsPattern(search) : null;
+
+        var query = _db.Users
             .Where(u => u.TenantId == _tenant.TenantId && u.IsActive)
+            .Where(u => pattern == null
+                || EF.Functions.Like(u.Email.ToLower(), pattern)
+                || EF.Functions.Like(u.FullName.ToLower(), pattern));
+
+        var total = await query.CountAsync(cancellationToken);
+
+        // Page the users first so the role and rights lookups below only cover this page.
+        var users = await query
+            .ApplySort(paging, SortMap, ("email", false), u => u.UserId)
+            .Skip(paging.Skip)
+            .Take(paging.NormalizedPageSize)
             .ToListAsync(cancellationToken);
 
         var userIds = users.Select(u => u.UserId).ToList();
@@ -44,7 +67,7 @@ public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, List<UserDto>
             .Where(r => rightIds.Contains(r.RightId))
             .ToListAsync(cancellationToken);
 
-        return users.Select(u =>
+        var items = users.Select(u =>
         {
             var userRoleIds = userRoles
                 .Where(ur => ur.UserId == u.UserId)
@@ -76,5 +99,7 @@ public class GetUsersQueryHandler : IRequestHandler<GetUsersQuery, List<UserDto>
 
             return new UserDto(u.UserId, u.TenantId, u.Email, u.FullName, userRoleObjects, userRightCodes);
         }).ToList();
+
+        return new PagedResult<UserDto>(items, paging.NormalizedPage, paging.NormalizedPageSize, total);
     }
 }

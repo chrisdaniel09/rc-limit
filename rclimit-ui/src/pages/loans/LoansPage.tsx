@@ -7,13 +7,14 @@ import Badge from '../../components/Badge';
 import { statusVariant } from '../../components/badgeVariants';
 import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
+import Pagination from '../../components/Pagination';
+import { useListState } from '../../hooks/useListState';
 
 interface Loan {
   loanId: string;
-  serialNumber: number;
-  loanNumber: string;
+  loanNumber: string | null;
   customerName: string;
-  vehicleReg: string;
+  vehicleRegNo: string;
   lenderName: string;
   sanctionedAmount: number;
   netDisbursedAmount: number;
@@ -33,11 +34,17 @@ const formatDate = (dateStr: string) => {
 };
 
 export default function LoansPage() {
-  const { data, loading, refetch } = useFetch<Loan[]>('/api/v1/loans');
-  const { data: customers } = useFetch<{ customerId: string; legalName: string }[]>('/api/v1/customers');
+  const list = useListState({
+    storageKey: 'loans.pageSize',
+    defaultSortBy: 'createdAt',
+    defaultSortDir: 'desc',
+    initialFilters: {},
+  });
+  const { data, meta, loading, refetch } = useFetch<Loan[]>(`/api/v1/loans?${list.query}`);
+  const { data: customers } = useFetch<{ customerId: string; legalName: string }[]>('/api/v1/customers/lookup');
   const { data: vehicles } = useFetch<{ vehicleId: string; registrationNumber: string }[]>('/api/v1/vehicles');
   const { data: bankPools } = useFetch<{ poolId: string; lenderId: string; lenderName: string; facilityAccountNumber: string; sanctionedLimit: number; utilizedAmount: number }[]>('/api/v1/bank-pools');
-  const { data: partners } = useFetch<{ partnerId: string; legalName: string }[]>('/api/v1/partners');
+  const { data: partners } = useFetch<{ partnerId: string; legalName: string }[]>('/api/v1/partners/lookup');
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const { data: lenderDisbursedToOptions } = useFetch<{ optionId: string; code: string; label: string; sortOrder: number; isActive: boolean }[]>('/api/v1/lender-disbursed-to-options');
@@ -51,14 +58,14 @@ export default function LoansPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const columns: Column<Loan>[] = [
-    { key: 'serialNumber', header: '#' },
-    { key: 'customerName', header: 'Customer' },
-    { key: 'vehicleReg', header: 'Vehicle Reg' },
+    { key: 'loanNumber', header: 'Loan #', sortKey: 'loanNumber' },
+    { key: 'customerName', header: 'Customer', sortKey: 'customerName' },
+    { key: 'vehicleRegNo', header: 'Vehicle Reg' },
     { key: 'lenderName', header: 'Lender' },
-    { key: 'sanctionedAmount', header: 'Sanctioned', render: (l) => formatCurrency(l.sanctionedAmount) },
-    { key: 'netDisbursedAmount', header: 'Disbursed', render: (l) => formatCurrency(l.netDisbursedAmount) },
-    { key: 'loanStatus', header: 'Status', render: (l) => <Badge text={l.loanStatus} variant={statusVariant(l.loanStatus)} /> },
-    { key: 'disbursalDate', header: 'Date', render: (l) => formatDate(l.disbursalDate) },
+    { key: 'sanctionedAmount', header: 'Sanctioned', sortKey: 'sanctionedAmount', render: (l) => formatCurrency(l.sanctionedAmount) },
+    { key: 'netDisbursedAmount', header: 'Disbursed', sortKey: 'netDisbursedAmount', render: (l) => formatCurrency(l.netDisbursedAmount) },
+    { key: 'loanStatus', header: 'Status', sortKey: 'loanStatus', render: (l) => <Badge text={l.loanStatus} variant={statusVariant(l.loanStatus)} /> },
+    { key: 'disbursalDate', header: 'Date', sortKey: 'disbursalDate', render: (l) => formatDate(l.disbursalDate) },
   ];
 
   const toOptions = (items: SelectItem[] | null): { value: string; label: string }[] =>
@@ -85,7 +92,9 @@ export default function LoansPage() {
         remarks: form.remarks,
       });
       setShowModal(false);
-      refetch();
+      // Keep the current page and filters; a changed page refetches on its own.
+      if (list.page === 1) refetch();
+      else list.setPage(1);
     } catch {
       // handle
     } finally {
@@ -107,7 +116,22 @@ export default function LoansPage() {
         data={data ?? []}
         loading={loading}
         onRowClick={(loan) => navigate(`/loans/${loan.loanId}`)}
-        searchPlaceholder="Search loans..."
+        searchPlaceholder="Search loan #, customer, vehicle or agreement..."
+        server={{
+          searchValue: list.searchInput,
+          onSearchChange: list.setSearchInput,
+          sortBy: list.sortBy,
+          sortDir: list.sortDir,
+          onSort: list.updateSort,
+          footer: (
+            <Pagination
+              meta={meta}
+              pageSize={list.pageSize}
+              onPageChange={list.setPage}
+              onPageSizeChange={list.setPageSize}
+            />
+          ),
+        }}
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Create Loan">

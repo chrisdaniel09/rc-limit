@@ -9,6 +9,8 @@ import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
 import PhoneInput from '../../components/PhoneInput';
 import { toPhoneNumber } from '../../utils/phone';
+import { useListState } from '../../hooks/useListState';
+import Pagination from '../../components/Pagination';
 
 interface Customer {
   customerId: string;
@@ -27,19 +29,25 @@ const formatCurrency = (amount: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 
 export default function CustomersPage() {
-  const { data, loading, refetch } = useFetch<Customer[]>('/api/v1/customers');
+  const list = useListState({
+    storageKey: 'customers.pageSize',
+    defaultSortBy: 'legalName',
+    defaultSortDir: 'asc',
+    initialFilters: { customerType: '' },
+  });
+  const { data, meta, loading, refetch } = useFetch<Customer[]>(`/api/v1/customers?${list.query}`);
   const navigate = useNavigate();
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ legalName: '', tradeName: '', customerType: 'DEALER', phoneNumber: '', assignedCeiling: '' });
   const [submitting, setSubmitting] = useState(false);
 
   const columns: Column<Customer>[] = [
-    { key: 'legalName', header: 'Legal Name' },
-    { key: 'tradeName', header: 'Trade Name' },
-    { key: 'customerType', header: 'Type', render: (c) => <Badge text={c.customerType} variant="neutral" /> },
-    { key: 'cibilScore', header: 'CIBIL', render: (c) => c.cibilScore ?? '-' },
+    { key: 'legalName', header: 'Legal Name', sortKey: 'legalName' },
+    { key: 'tradeName', header: 'Trade Name', sortKey: 'tradeName' },
+    { key: 'customerType', header: 'Type', sortKey: 'customerType', render: (c) => <Badge text={c.customerType} variant="neutral" /> },
+    { key: 'cibilScore', header: 'CIBIL', sortKey: 'cibilScore', render: (c) => c.cibilScore ?? '-' },
     { key: 'cibilTier', header: 'Tier', render: (c) => c.cibilTier ? <Badge text={c.cibilTier} variant={statusVariant(c.cibilTier)} /> : '-' },
-    { key: 'riskStatus', header: 'Risk', render: (c) => <Badge text={c.riskStatus} variant={statusVariant(c.riskStatus)} /> },
+    { key: 'riskStatus', header: 'Risk', sortKey: 'riskStatus', render: (c) => <Badge text={c.riskStatus} variant={statusVariant(c.riskStatus)} /> },
     {
       key: 'utilization',
       header: 'Sub-Limit',
@@ -81,7 +89,9 @@ export default function CustomersPage() {
       });
       setShowModal(false);
       setForm({ legalName: '', tradeName: '', customerType: 'DEALER', phoneNumber: '', assignedCeiling: '' });
-      refetch();
+      // Keep the current page and filters; a changed page refetches on its own.
+      if (list.page === 1) refetch();
+      else list.setPage(1);
     } catch {
       // handle error
     } finally {
@@ -98,7 +108,41 @@ export default function CustomersPage() {
         </button>
       </div>
 
-      <DataTable columns={columns} data={data ?? []} loading={loading} onRowClick={(c) => navigate(`/customers/${c.customerId}`)} searchPlaceholder="Search customers..." />
+      <div className="mb-4">
+        <select
+          value={list.filters.customerType}
+          onChange={(e) => list.updateFilter('customerType', e.target.value)}
+          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          aria-label="Filter by customer type"
+        >
+          <option value="">All types</option>
+          <option value="DEALER">Dealer</option>
+          <option value="INDIVIDUAL">Individual</option>
+        </select>
+      </div>
+
+      <DataTable
+        columns={columns}
+        data={data ?? []}
+        loading={loading}
+        onRowClick={(c) => navigate(`/customers/${c.customerId}`)}
+        searchPlaceholder="Search name or phone..."
+        server={{
+          searchValue: list.searchInput,
+          onSearchChange: list.setSearchInput,
+          sortBy: list.sortBy,
+          sortDir: list.sortDir,
+          onSort: list.updateSort,
+          footer: (
+            <Pagination
+              meta={meta}
+              pageSize={list.pageSize}
+              onPageChange={list.setPage}
+              onPageSizeChange={list.setPageSize}
+            />
+          ),
+        }}
+      />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Customer">
         <form onSubmit={handleSubmit}>

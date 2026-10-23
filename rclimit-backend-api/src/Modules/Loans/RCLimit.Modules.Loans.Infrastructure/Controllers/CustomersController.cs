@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.Modules.Loans.Application.Customers;
 using RCLimit.Modules.Loans.Application.Vehicles;
 
@@ -21,17 +22,38 @@ public class CustomersController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll()
+    public async Task<IActionResult> GetAll(
+        [FromQuery] string? customerType = null,
+        [FromQuery] string? riskStatus = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = PageQuery.DefaultPageSize,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _sender.Send(new GetCustomersQuery());
+        var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
+        var result = await _sender.Send(new GetCustomersQuery(customerType, riskStatus, paging));
         return Ok(new HateoasResponse<object>
         {
-            Data = result,
+            Data = result.Items,
+            Meta = new PageMeta(result.Page, result.PageSize, result.TotalCount, result.TotalPages),
             Links =
             [
                 new("/api/v1/customers", "self", "GET"),
                 new("/api/v1/customers", "create", "POST"),
+                new("/api/v1/customers/lookup", "lookup", "GET"),
             ]
+        });
+    }
+
+    [HttpGet("lookup")]
+    public async Task<IActionResult> GetLookup()
+    {
+        var result = await _sender.Send(new GetCustomerLookupQuery());
+        return Ok(new HateoasResponse<object>
+        {
+            Data = result,
+            Links = [new("/api/v1/customers/lookup", "self", "GET")]
         });
     }
 

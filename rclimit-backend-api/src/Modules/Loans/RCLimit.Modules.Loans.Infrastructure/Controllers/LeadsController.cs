@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
+using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
 using RCLimit.Modules.Loans.Application.Leads;
 using RCLimit.Modules.Loans.Application.Comments;
@@ -22,12 +23,21 @@ public class LeadsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> GetAll([FromQuery] bool assignedToMe = false)
+    public async Task<IActionResult> GetAll(
+        [FromQuery] bool assignedToMe = false,
+        [FromQuery] string? leadStatus = null,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = PageQuery.DefaultPageSize,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? search = null)
     {
-        var result = await _sender.Send(new GetLeadsQuery(assignedToMe));
+        var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
+        var result = await _sender.Send(new GetLeadsQuery(assignedToMe, leadStatus, paging));
         return Ok(new HateoasResponse<object>
         {
-            Data = result,
+            Data = result.Items,
+            Meta = new PageMeta(result.Page, result.PageSize, result.TotalCount, result.TotalPages),
             Links =
             [
                 new("/api/v1/leads", "self", "GET"),

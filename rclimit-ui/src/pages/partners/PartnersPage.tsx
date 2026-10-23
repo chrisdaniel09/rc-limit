@@ -8,6 +8,8 @@ import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
 import PhoneInput from '../../components/PhoneInput';
 import { toPhoneNumber } from '../../utils/phone';
+import { useListState } from '../../hooks/useListState';
+import Pagination from '../../components/Pagination';
 
 interface Partner {
   partnerId: string;
@@ -19,17 +21,23 @@ interface Partner {
 }
 
 export default function PartnersPage() {
-  const { data, loading, refetch } = useFetch<Partner[]>('/api/v1/partners');
+  const list = useListState({
+    storageKey: 'partners.pageSize',
+    defaultSortBy: 'legalName',
+    defaultSortDir: 'asc',
+    initialFilters: {},
+  });
+  const { data, meta, loading, refetch } = useFetch<Partner[]>(`/api/v1/partners?${list.query}`);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({ legalName: '', partnerType: 'SUB_BROKER', phoneNumber: '', defaultCommissionSplitPct: '70' });
   const [submitting, setSubmitting] = useState(false);
 
   const columns: Column<Partner>[] = [
-    { key: 'legalName', header: 'Legal Name' },
-    { key: 'partnerType', header: 'Type', render: (p) => <Badge text={p.partnerType.replace('_', ' ')} variant="info" /> },
+    { key: 'legalName', header: 'Legal Name', sortKey: 'legalName' },
+    { key: 'partnerType', header: 'Type', sortKey: 'partnerType', render: (p) => <Badge text={p.partnerType.replace('_', ' ')} variant="info" /> },
     { key: 'phoneNumber', header: 'Phone' },
     { key: 'defaultCommissionSplitPct', header: 'Commission %', render: (p) => `${p.defaultCommissionSplitPct}%` },
-    { key: 'status', header: 'Status', render: (p) => <Badge text={p.status} variant={statusVariant(p.status)} /> },
+    { key: 'status', header: 'Status', sortKey: 'status', render: (p) => <Badge text={p.status} variant={statusVariant(p.status)} /> },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -44,7 +52,9 @@ export default function PartnersPage() {
       });
       setShowModal(false);
       setForm({ legalName: '', partnerType: 'SUB_BROKER', phoneNumber: '', defaultCommissionSplitPct: '70' });
-      refetch();
+      // Keep the current page and filters; a changed page refetches on its own.
+      if (list.page === 1) refetch();
+      else list.setPage(1);
     } catch {
       // handle
     } finally {
@@ -61,7 +71,27 @@ export default function PartnersPage() {
         </button>
       </div>
 
-      <DataTable columns={columns} data={data ?? []} loading={loading} searchPlaceholder="Search partners..." />
+      <DataTable
+        columns={columns}
+        data={data ?? []}
+        loading={loading}
+        searchPlaceholder="Search name or phone..."
+        server={{
+          searchValue: list.searchInput,
+          onSearchChange: list.setSearchInput,
+          sortBy: list.sortBy,
+          sortDir: list.sortDir,
+          onSort: list.updateSort,
+          footer: (
+            <Pagination
+              meta={meta}
+              pageSize={list.pageSize}
+              onPageChange={list.setPage}
+              onPageSizeChange={list.setPageSize}
+            />
+          ),
+        }}
+      />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Partner">
         <form onSubmit={handleSubmit}>

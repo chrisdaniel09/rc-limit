@@ -9,6 +9,8 @@ import Modal from '../../components/Modal';
 import FormField from '../../components/FormField';
 import PhoneInput from '../../components/PhoneInput';
 import { toPhoneNumber } from '../../utils/phone';
+import { useListState } from '../../hooks/useListState';
+import Pagination from '../../components/Pagination';
 
 interface Lead {
   leadId: string;
@@ -48,6 +50,14 @@ const LEAD_SOURCES = [
   { value: 'OTHER', label: 'Other' },
 ];
 
+const LEAD_STATUS_OPTIONS = [
+  { value: 'NEW', label: 'New' },
+  { value: 'IN_PROGRESS', label: 'In Progress' },
+  { value: 'QUALIFIED', label: 'Qualified' },
+  { value: 'CONVERTED', label: 'Converted' },
+  { value: 'REJECTED', label: 'Rejected' },
+];
+
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -55,10 +65,14 @@ const formatDate = (dateStr: string) => {
 
 export default function LeadsPage() {
   const navigate = useNavigate();
-  const [scope, setScope] = useState<'all' | 'mine'>('all');
-  const { data, loading, refetch } = useFetch<Lead[]>(
-    scope === 'mine' ? '/api/v1/leads?assignedToMe=true' : '/api/v1/leads',
-  );
+  const list = useListState({
+    storageKey: 'leads.pageSize',
+    defaultSortBy: 'createdAt',
+    defaultSortDir: 'desc',
+    initialFilters: { assignedToMe: '', leadStatus: '' },
+  });
+  const scope = list.filters.assignedToMe === 'true' ? 'mine' : 'all';
+  const { data, meta, loading, refetch } = useFetch<Lead[]>(`/api/v1/leads?${list.query}`);
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState({
@@ -69,13 +83,14 @@ export default function LeadsPage() {
   const [submitting, setSubmitting] = useState(false);
 
   const columns: Column<Lead>[] = [
-    { key: 'applicantName', header: 'Applicant' },
-    { key: 'leadSource', header: 'Source', render: (l) => <Badge text={l.leadSource} variant="neutral" /> },
+    { key: 'applicantName', header: 'Applicant', sortKey: 'applicantName' },
+    { key: 'leadSource', header: 'Source', sortKey: 'leadSource', render: (l) => <Badge text={l.leadSource} variant="neutral" /> },
+    // Not sortable: the name is resolved from the Identity module after paging, so the database cannot order by it.
     { key: 'assignedToUserName', header: 'Assigned To', render: (l) => l.assignedToUserName ?? '-' },
-    { key: 'cibilCheckStatus', header: 'CIBIL', render: (l) => <Badge text={l.cibilCheckStatus} variant={statusVariant(l.cibilCheckStatus)} /> },
-    { key: 'rcCheckStatus', header: 'RC', render: (l) => <Badge text={l.rcCheckStatus} variant={statusVariant(l.rcCheckStatus)} /> },
-    { key: 'leadStatus', header: 'Status', render: (l) => <Badge text={l.leadStatus} variant={statusVariant(l.leadStatus)} /> },
-    { key: 'createdAt', header: 'Created', render: (l) => formatDate(l.createdAt) },
+    { key: 'cibilCheckStatus', header: 'CIBIL', sortKey: 'cibilCheckStatus', render: (l) => <Badge text={l.cibilCheckStatus} variant={statusVariant(l.cibilCheckStatus)} /> },
+    { key: 'rcCheckStatus', header: 'RC', sortKey: 'rcCheckStatus', render: (l) => <Badge text={l.rcCheckStatus} variant={statusVariant(l.rcCheckStatus)} /> },
+    { key: 'leadStatus', header: 'Status', sortKey: 'leadStatus', render: (l) => <Badge text={l.leadStatus} variant={statusVariant(l.leadStatus)} /> },
+    { key: 'createdAt', header: 'Created', sortKey: 'createdAt', render: (l) => formatDate(l.createdAt) },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -98,7 +113,9 @@ export default function LeadsPage() {
         applicantName: '', whatsappPhoneNumber: '', contactPhone: '',
         requestedLoanAmount: '', vehicleRegistrationNumber: '', notes: '',
       });
-      refetch();
+      // Newest leads sort first, so show page 1 where the new lead appears. Changing the page refetches on its own.
+      if (list.page === 1) refetch();
+      else list.setPage(1);
     } catch (err) {
       console.error('Failed to create lead:', err);
       alert('Failed to create lead. Please try again.');
@@ -122,7 +139,7 @@ export default function LeadsPage() {
               <button
                 key={value}
                 type="button"
-                onClick={() => setScope(value)}
+                onClick={() => list.updateFilter('assignedToMe', value === 'mine' ? 'true' : '')}
                 className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
                   scope === value ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
                 }`}
@@ -137,12 +154,41 @@ export default function LeadsPage() {
         </button>
       </div>
 
+      <div className="mb-4">
+        <select
+          value={list.filters.leadStatus}
+          onChange={(e) => list.updateFilter('leadStatus', e.target.value)}
+          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
+          aria-label="Filter by lead status"
+        >
+          <option value="">All statuses</option>
+          {LEAD_STATUS_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+
       <DataTable
         columns={columns}
         data={data ?? []}
         loading={loading}
-        searchPlaceholder="Search leads..."
+        searchPlaceholder="Search applicant, phone or vehicle..."
         onRowClick={(lead) => navigate(`/leads/${lead.leadId}`)}
+        server={{
+          searchValue: list.searchInput,
+          onSearchChange: list.setSearchInput,
+          sortBy: list.sortBy,
+          sortDir: list.sortDir,
+          onSort: list.updateSort,
+          footer: (
+            <Pagination
+              meta={meta}
+              pageSize={list.pageSize}
+              onPageChange={list.setPage}
+              onPageSizeChange={list.setPageSize}
+            />
+          ),
+        }}
       />
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lead">

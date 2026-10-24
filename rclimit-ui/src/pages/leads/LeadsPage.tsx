@@ -11,25 +11,24 @@ import PhoneInput from '../../components/PhoneInput';
 import { toPhoneNumber } from '../../utils/phone';
 import { useListState } from '../../hooks/useListState';
 import Pagination from '../../components/Pagination';
+import ProductFieldInput from './ProductFieldInput';
+import { toProductDetails, type ProductType } from './productTypes';
 
 interface Lead {
   leadId: string;
   applicantName: string;
   whatsappPhoneNumber: string;
   contactPhone: string | null;
-  requestedLoanAmount: number | null;
-  vehicleRegistrationNumber: string;
+  productTypeCode: string;
+  requestedAmount: number | null;
+  referenceNumber: string | null;
   leadSource: string;
   referredByUserId: string | null;
   referredByUserName: string | null;
-  vahanValidationStatus: string;
   leadStatus: string;
   notes: string | null;
   assignedToUserId: string | null;
   assignedToUserName: string | null;
-  cibilCheckStatus: string;
-  rcCheckStatus: string;
-  cibilScorePreview: number | null;
   convertedCustomerId: string | null;
   createdAt: string;
 }
@@ -58,6 +57,17 @@ const LEAD_STATUS_OPTIONS = [
   { value: 'REJECTED', label: 'Rejected' },
 ];
 
+const emptyForm = {
+  leadSource: 'WALK_IN',
+  referredByUserId: '',
+  applicantName: '',
+  whatsappPhoneNumber: '',
+  contactPhone: '',
+  productTypeCode: '',
+  requestedAmount: '',
+  notes: '',
+};
+
 const formatDate = (dateStr: string) => {
   if (!dateStr) return '-';
   return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -74,24 +84,32 @@ export default function LeadsPage() {
   const scope = list.filters.assignedToMe === 'true' ? 'mine' : 'all';
   const { data, meta, loading, refetch } = useFetch<Lead[]>(`/api/v1/leads?${list.query}`);
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
+  const { data: productTypes } = useFetch<ProductType[]>('/api/v1/lead-product-types');
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({
-    leadSource: 'WALK_IN', referredByUserId: '',
-    applicantName: '', whatsappPhoneNumber: '', contactPhone: '',
-    requestedLoanAmount: '', vehicleRegistrationNumber: '', notes: '',
-  });
+  const [form, setForm] = useState(emptyForm);
+  const [productDetails, setProductDetails] = useState<Record<string, string>>({});
   const [submitting, setSubmitting] = useState(false);
+
+  const activeProductTypes = (productTypes ?? []).filter((p) => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+  const selectedProduct = activeProductTypes.find((p) => p.code === form.productTypeCode);
+  const requirementLabel = (code: string) => (productTypes ?? []).find((p) => p.code === code)?.label ?? code;
 
   const columns: Column<Lead>[] = [
     { key: 'applicantName', header: 'Applicant', sortKey: 'applicantName' },
+    { key: 'productTypeCode', header: 'Financial Requirement', render: (l) => requirementLabel(l.productTypeCode) },
+    { key: 'referenceNumber', header: 'Reference', render: (l) => l.referenceNumber ?? '-' },
     { key: 'leadSource', header: 'Source', sortKey: 'leadSource', render: (l) => <Badge text={l.leadSource} variant="neutral" /> },
     // Not sortable: the name is resolved from the Identity module after paging, so the database cannot order by it.
     { key: 'assignedToUserName', header: 'Assigned To', render: (l) => l.assignedToUserName ?? '-' },
-    { key: 'cibilCheckStatus', header: 'CIBIL', sortKey: 'cibilCheckStatus', render: (l) => <Badge text={l.cibilCheckStatus} variant={statusVariant(l.cibilCheckStatus)} /> },
-    { key: 'rcCheckStatus', header: 'RC', sortKey: 'rcCheckStatus', render: (l) => <Badge text={l.rcCheckStatus} variant={statusVariant(l.rcCheckStatus)} /> },
     { key: 'leadStatus', header: 'Status', sortKey: 'leadStatus', render: (l) => <Badge text={l.leadStatus} variant={statusVariant(l.leadStatus)} /> },
     { key: 'createdAt', header: 'Created', sortKey: 'createdAt', render: (l) => formatDate(l.createdAt) },
   ];
+
+  const openModal = () => {
+    setForm({ ...emptyForm, productTypeCode: activeProductTypes[0]?.code ?? '' });
+    setProductDetails({});
+    setShowModal(true);
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -103,22 +121,18 @@ export default function LeadsPage() {
         applicantName: form.applicantName,
         whatsappPhoneNumber: toPhoneNumber(form.whatsappPhoneNumber),
         contactPhone: toPhoneNumber(form.contactPhone),
-        requestedLoanAmount: form.requestedLoanAmount ? parseFloat(form.requestedLoanAmount) : null,
-        vehicleRegistrationNumber: form.vehicleRegistrationNumber || null,
+        productTypeCode: form.productTypeCode,
+        requestedAmount: form.requestedAmount ? parseFloat(form.requestedAmount) : null,
+        productDetails: toProductDetails(selectedProduct?.fieldSchema ?? [], productDetails),
         notes: form.notes || null,
       });
       setShowModal(false);
-      setForm({
-        leadSource: 'WALK_IN', referredByUserId: '',
-        applicantName: '', whatsappPhoneNumber: '', contactPhone: '',
-        requestedLoanAmount: '', vehicleRegistrationNumber: '', notes: '',
-      });
       // Newest leads sort first, so show page 1 where the new lead appears. Changing the page refetches on its own.
       if (list.page === 1) refetch();
       else list.setPage(1);
     } catch (err) {
       console.error('Failed to create lead:', err);
-      alert('Failed to create lead. Please try again.');
+      alert(err instanceof Error && err.message ? err.message : 'Failed to create lead. Please try again.');
     } finally {
       setSubmitting(false);
     }
@@ -128,6 +142,8 @@ export default function LeadsPage() {
     value: u.userId,
     label: u.fullName || u.email || u.userId,
   })) ?? [];
+
+  const requirementOptions = activeProductTypes.map((p) => ({ value: p.code, label: p.label }));
 
   return (
     <div>
@@ -149,7 +165,7 @@ export default function LeadsPage() {
             ))}
           </div>
         </div>
-        <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
+        <button onClick={openModal} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
           Add Lead
         </button>
       </div>
@@ -172,7 +188,7 @@ export default function LeadsPage() {
         columns={columns}
         data={data ?? []}
         loading={loading}
-        searchPlaceholder="Search applicant, phone or vehicle..."
+        searchPlaceholder="Search applicant, phone or registration..."
         onRowClick={(lead) => navigate(`/leads/${lead.leadId}`)}
         server={{
           searchValue: list.searchInput,
@@ -193,6 +209,16 @@ export default function LeadsPage() {
 
       <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lead">
         <form onSubmit={handleSubmit}>
+          <FormField
+            label="Financial Requirement"
+            value={form.productTypeCode}
+            onChange={(v) => {
+              setForm({ ...form, productTypeCode: v });
+              setProductDetails({});
+            }}
+            options={requirementOptions}
+            required
+          />
           <FormField label="Applicant Name" value={form.applicantName} onChange={(v) => setForm({ ...form, applicantName: v })} required />
           <div className="grid grid-cols-2 gap-3">
             <FormField label="Lead Source" value={form.leadSource} onChange={(v) => setForm({ ...form, leadSource: v })} required options={LEAD_SOURCES} />
@@ -202,12 +228,26 @@ export default function LeadsPage() {
             <PhoneInput label="WhatsApp Phone" value={form.whatsappPhoneNumber} onChange={(v) => setForm({ ...form, whatsappPhoneNumber: v })} required />
             <PhoneInput label="Contact Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
           </div>
-          <FormField label="Requested Loan Amount (₹)" type="number" value={form.requestedLoanAmount} onChange={(v) => setForm({ ...form, requestedLoanAmount: v })} />
-          <FormField label="Vehicle Registration #" value={form.vehicleRegistrationNumber} onChange={(v) => setForm({ ...form, vehicleRegistrationNumber: v })} placeholder="GJ05BX6637" />
+          <FormField label="Requested Amount (₹)" type="number" value={form.requestedAmount} onChange={(v) => setForm({ ...form, requestedAmount: v })} />
+
+          {selectedProduct && selectedProduct.fieldSchema.length > 0 && (
+            <div className="mb-2 rounded-md border border-gray-200 bg-gray-50 px-4 pt-3 pb-1">
+              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">{selectedProduct.label} details</p>
+              {selectedProduct.fieldSchema.map((field) => (
+                <ProductFieldInput
+                  key={field.key}
+                  field={field}
+                  value={productDetails[field.key] ?? ''}
+                  onChange={(v) => setProductDetails({ ...productDetails, [field.key]: v })}
+                />
+              ))}
+            </div>
+          )}
+
           <FormField label="Notes" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Any additional context about the lead..." />
           <div className="flex justify-end gap-3 mt-6">
             <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
+            <button type="submit" disabled={submitting || !form.productTypeCode} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
           </div>
         </form>
       </Modal>

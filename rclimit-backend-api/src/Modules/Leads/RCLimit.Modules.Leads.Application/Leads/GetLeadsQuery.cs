@@ -89,7 +89,10 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, PagedResult<L
             l.RcCheckStatus,
             l.CibilScorePreview,
             l.ConvertedCustomerId,
-            l.CreatedAt)).ToList();
+            l.CreatedAt,
+            l.ProductTypeCode,
+            l.RequestedAmount,
+            l.ReferenceNumber)).ToList();
 
         return new PagedResult<LeadDto>(items, paging.NormalizedPage, paging.NormalizedPageSize, total);
     }

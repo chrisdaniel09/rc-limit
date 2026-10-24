@@ -133,7 +133,7 @@ VALUES
     (gen_random_uuid(), 'accounting.delete', 'accounting', 'Delete Accounting', 'Delete accounting entries', TRUE),
     (gen_random_uuid(), 'users.manage', 'users', 'Manage Users', 'Assign and revoke user roles', TRUE),
     (gen_random_uuid(), 'roles.manage', 'roles', 'Manage Roles', 'Create, edit, delete roles and assign rights', TRUE),
-    (gen_random_uuid(), 'rights.manage', 'rights', 'Manage Rights', 'Manage the rights catalogue', TRUE)
+    (gen_random_uuid(), 'rights.manage', 'rights', 'Manage Rights', 'Manage the rights catalogue', TRUE);
 
 
 

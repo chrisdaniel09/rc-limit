@@ -56,9 +56,9 @@ internal static class LeadCustomerMatcher
         }
 
         // VEHICLE: the customer who currently owns the lead's registration number.
-        if (!string.IsNullOrWhiteSpace(lead.VehicleRegistrationNumber))
+        if (!string.IsNullOrWhiteSpace(lead.ReferenceNumber))
         {
-            var ownerId = await vehicles.FindCurrentOwnerIdAsync(lead.VehicleRegistrationNumber, cancellationToken);
+            var ownerId = await vehicles.FindCurrentOwnerIdAsync(lead.ReferenceNumber, cancellationToken);
             if (ownerId.HasValue)
             {
                 foreach (var owner in await customers.GetSummariesAsync([ownerId.Value], cancellationToken))

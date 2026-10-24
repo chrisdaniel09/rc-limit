@@ -1,11 +1,14 @@
+using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Identity.Contracts;
 using RCLimit.Modules.Leads.Application.Abstractions;
+using RCLimit.Modules.Leads.Application.Actions;
 using RCLimit.Modules.Loans.Contracts.Customers;
 using RCLimit.Modules.Leads.Domain.Entities;
+using RCLimit.Modules.Leads.Domain.ValueObjects;
 
 namespace RCLimit.Modules.Leads.Application.Leads;
 
@@ -45,7 +48,14 @@ public record LeadDetailDto(
     string? ConvertedCustomerName,
     bool IsLocked,
     List<LeadCheckLogDto> CheckHistory,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string ProductTypeCode,
+    decimal? RequestedAmount,
+    string? ReferenceNumber,
+    Dictionary<string, JsonElement> ProductDetails,
+    List<ProductFieldDefinition> FieldSchema,
+    List<ActionDefinition> ConfiguredActions,
+    List<ActionExecutionDto> ActionHistory);
 
 public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, LeadDetailDto>
 {
@@ -134,6 +144,19 @@ public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, Lea
         if (lead.AssignedToUserId.HasValue && userNames.TryGetValue(lead.AssignedToUserId.Value, out var assignName))
             assignUserName = assignName;
 
+        // The schema and actions come from the product type, even if it has since been deactivated,
+        // so an existing lead still shows what it was captured against.
+        var productType = await _db.ProductTypes.AsNoTracking().FirstOrDefaultAsync(
+            p => p.TenantId == _tenant.TenantId && p.Code == lead.ProductTypeCode, cancellationToken);
+
+        var actionHistory = await _db.ActionExecutions
+            .AsNoTracking()
+            .Where(a => a.LeadId == request.LeadId)
+            .OrderByDescending(a => a.StartedAt)
+            .Select(a => new ActionExecutionDto(
+                a.ExecutionId, a.ActionCode, a.ActionOrder, a.Status, a.ResponsePayload, a.ErrorMessage))
+            .ToListAsync(cancellationToken);
+
         return new LeadDetailDto(
             lead.LeadId,
             lead.LeadSource,
@@ -157,6 +180,13 @@ public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, Lea
             convertedCustomerName,
             isLocked,
             checkHistoryDtos,
-            lead.CreatedAt);
+            lead.CreatedAt,
+            lead.ProductTypeCode,
+            lead.RequestedAmount,
+            lead.ReferenceNumber,
+            lead.ProductDetails,
+            productType?.FieldSchema ?? [],
+            productType?.Actions ?? [],
+            actionHistory);
     }
 }

@@ -48,6 +48,25 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
         return new VehicleOwnershipPreviewDto("NONE", null);
     }
 
+    public async Task<IReadOnlyList<VehicleFieldConflictDto>> GetConflictsAsync(
+        VehicleDetailsDto incoming,
+        CancellationToken cancellationToken = default)
+    {
+        var vehicle = await FindVehicleAsync(incoming.RegistrationNumber, cancellationToken);
+        if (vehicle == null)
+            return [];
+
+        return new[]
+        {
+            Conflict(nameof(VehicleDetailsDto.ChassisNumber), vehicle.ChassisNumber, incoming.ChassisNumber),
+            Conflict(nameof(VehicleDetailsDto.EngineNumber), vehicle.EngineNumber, incoming.EngineNumber),
+            Conflict(nameof(VehicleDetailsDto.Make), vehicle.Make, incoming.Make),
+            Conflict(nameof(VehicleDetailsDto.Model), vehicle.Model, incoming.Model),
+            Conflict(nameof(VehicleDetailsDto.Variant), vehicle.Variant, incoming.Variant),
+            Conflict(nameof(VehicleDetailsDto.YearOfMfg), vehicle.YearOfMfg?.ToString(), incoming.YearOfMfg?.ToString()),
+        }.OfType<VehicleFieldConflictDto>().ToList();
+    }
+
     public async Task EnsureAssignableAsync(
         string registrationNumber,
         Guid? customerId,
@@ -70,16 +89,17 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
     }
 
     public async Task<Guid> AssignToCustomerAsync(
-        string registrationNumber,
+        VehicleDetailsDto details,
         Guid customerId,
         Guid sourceLeadId,
         bool confirmTransfer,
+        IReadOnlySet<string> overwriteFields,
         CancellationToken cancellationToken = default)
     {
         // All rules are checked before anything is written.
-        await EnsureAssignableAsync(registrationNumber, customerId, confirmTransfer, cancellationToken);
+        await EnsureAssignableAsync(details.RegistrationNumber, customerId, confirmTransfer, cancellationToken);
 
-        var vehicle = await FindVehicleAsync(registrationNumber, cancellationToken);
+        var vehicle = await FindVehicleAsync(details.RegistrationNumber, cancellationToken);
 
         if (vehicle == null)
         {
@@ -87,10 +107,12 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
             {
                 VehicleId = Guid.NewGuid(),
                 TenantId = tenant.TenantId,
-                RegistrationNumber = registrationNumber,
+                RegistrationNumber = NormalizeRegistrationNumber(details.RegistrationNumber),
                 OwnerCustomerId = customerId
             };
+            ApplyDetails(newVehicle, details, overwriteFields: null);
 
+            // The vehicle is saved first. The ownership row references it, and EF does not order these inserts for us.
             db.Vehicles.Add(newVehicle);
             await db.SaveChangesAsync(cancellationToken);
 
@@ -100,6 +122,8 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
             return newVehicle.VehicleId;
         }
 
+        ApplyDetails(vehicle, details, overwriteFields);
+
         if (vehicle.OwnerCustomerId == customerId)
         {
             // Already owned by this customer: link the existing ownership to the lead.
@@ -107,11 +131,9 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
                 .FirstOrDefaultAsync(cv => cv.VehicleId == vehicle.VehicleId && cv.OwnedTo == null, cancellationToken);
 
             if (existingOwnership != null)
-            {
                 existingOwnership.SourceLeadId = sourceLeadId;
-                await db.SaveChangesAsync(cancellationToken);
-            }
 
+            await db.SaveChangesAsync(cancellationToken);
             return vehicle.VehicleId;
         }
 
@@ -160,6 +182,39 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
             .AnyAsync(lt => lt.VehicleId == vehicle.VehicleId &&
                 lt.CustomerId == vehicle.OwnerCustomerId &&
                 lt.LoanStatus == OpenLoanStatus, cancellationToken);
+
+    // A blank incoming value never changes the vehicle. A held value changes only when its field is in overwriteFields.
+    // Passing null overwriteFields applies every incoming value (used for a vehicle created by this call).
+    private static void ApplyDetails(Vehicle vehicle, VehicleDetailsDto details, IReadOnlySet<string>? overwriteFields)
+    {
+        bool ShouldSet(string field, string? current) =>
+            overwriteFields is null || string.IsNullOrWhiteSpace(current) || overwriteFields.Contains(field);
+
+        if (!string.IsNullOrWhiteSpace(details.ChassisNumber) && ShouldSet(nameof(VehicleDetailsDto.ChassisNumber), vehicle.ChassisNumber))
+            vehicle.ChassisNumber = details.ChassisNumber;
+        if (!string.IsNullOrWhiteSpace(details.EngineNumber) && ShouldSet(nameof(VehicleDetailsDto.EngineNumber), vehicle.EngineNumber))
+            vehicle.EngineNumber = details.EngineNumber;
+        if (!string.IsNullOrWhiteSpace(details.Make) && ShouldSet(nameof(VehicleDetailsDto.Make), vehicle.Make))
+            vehicle.Make = details.Make;
+        if (!string.IsNullOrWhiteSpace(details.Model) && ShouldSet(nameof(VehicleDetailsDto.Model), vehicle.Model))
+            vehicle.Model = details.Model;
+        if (!string.IsNullOrWhiteSpace(details.Variant) && ShouldSet(nameof(VehicleDetailsDto.Variant), vehicle.Variant))
+            vehicle.Variant = details.Variant;
+        if (details.YearOfMfg.HasValue && ShouldSet(nameof(VehicleDetailsDto.YearOfMfg), vehicle.YearOfMfg?.ToString()))
+            vehicle.YearOfMfg = details.YearOfMfg;
+
+        vehicle.UpdatedAt = DateTime.UtcNow;
+    }
+
+    private static VehicleFieldConflictDto? Conflict(string field, string? current, string? incoming)
+    {
+        if (string.IsNullOrWhiteSpace(current) || string.IsNullOrWhiteSpace(incoming))
+            return null;
+
+        return string.Equals(current.Trim(), incoming.Trim(), StringComparison.OrdinalIgnoreCase)
+            ? null
+            : new VehicleFieldConflictDto(field, current, incoming);
+    }
 
     private CustomerVehicle NewOwnership(Guid customerId, Guid vehicleId, Guid sourceLeadId) => new()
     {

@@ -46,5 +46,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/RCLimit.ArchitectureTests/RCLimit.ArchitectureTests.csproj" />
+    <Project Path="tests/RCLimit.Modules.Leads.UnitTests/RCLimit.Modules.Leads.UnitTests.csproj" />
   </Folder>
 </Solution>

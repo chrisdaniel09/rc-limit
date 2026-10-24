@@ -26,9 +26,9 @@ Each file lists the gaps found in one feature, with severity, category and evide
 | [reference-data.md](reference-data.md) | Particular types, lender-disbursed-to options, post-disbursement document statuses |
 | [accounting.md](accounting.md) | Ledger accounts, journal entries, posting rules, balance sheet, disbursal postings |
 | [identity-and-access.md](identity-and-access.md) | Login, sessions, users, roles, rights, authorization |
-| [tenancy-and-system.md](tenancy-and-system.md) | Tenant creation, resolution, custom domains, settings |
+| [tenancy-and-system.md](tenancy-and-system.md) | Tenant creation, resolution, custom domains, settings, seed data and the migration runner |
 | [partners.md](partners.md) | Partners and their links to leads and loans |
-| [leads.md](leads.md) | Leads, checks, comments, conversion |
+| [leads.md](leads.md) | Leads, checks, comments, conversion, financial requirements (product types), their fields and actions |
 | [customers-and-vehicles.md](customers-and-vehicles.md) | Customers, sub-limits, vehicles, ownership |
 | [cross-cutting.md](cross-cutting.md) | Validation, transactions, tenant filters, authorization coverage |
 

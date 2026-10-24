@@ -37,6 +37,7 @@ const adminGroups: AdminGroup[] = [
     items: [
       { to: '/lenders', label: 'Lenders', icon: '🏦' },
       { to: '/accounting/particular-types', label: 'Line Item Types', icon: '☰' },
+      { to: '/lead-product-types', label: 'Financial Requirements', icon: '📑', right: 'leads.product_types.manage' },
     ],
   },
   {

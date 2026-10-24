@@ -1,9 +1,11 @@
+using System.Text.Json;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
+using RCLimit.Modules.Leads.Application.Actions;
 using RCLimit.Modules.Leads.Application.Comments;
 using RCLimit.Modules.Leads.Application.Leads;
 
@@ -138,6 +140,23 @@ public class LeadsController : ControllerBase
         });
     }
 
+    // Body maps action code to that action's request, e.g. { "CIBIL_CHECK": { "outcome": "PASSED", "score": 745 } }.
+    [HttpPost("{id}/actions")]
+    [HasRight("leads.edit")]
+    public async Task<IActionResult> RunActions(Guid id, [FromBody] Dictionary<string, JsonElement>? requests)
+    {
+        var results = await _sender.Send(new RunLeadActionsCommand(id, requests));
+        return Ok(new HateoasResponse<object>
+        {
+            Data = results,
+            Links =
+            [
+                new($"/api/v1/leads/{id}", "self", "GET"),
+                new("/api/v1/leads", "list", "GET"),
+            ]
+        });
+    }
+
     [HttpPost("{id}/convert")]
     [HasRight("leads.edit")]
     public async Task<IActionResult> ConvertToCustomer(Guid id, [FromBody] ConvertRequest request)
@@ -148,7 +167,8 @@ public class LeadsController : ControllerBase
             request.AssignedCeiling,
             request.ExistingCustomerId,
             request.ConfirmVehicleTransfer,
-            request.MaxPendingRcAllowed ?? 5));
+            request.MaxPendingRcAllowed ?? 5,
+            request.ConflictDecisions));
 
         return Created($"/api/v1/customers/{customerId}", new HateoasResponse<object>
         {
@@ -194,4 +214,11 @@ public record AssignLeadRequest(Guid? AssigneeUserId);
 public record AddCommentRequest(string Text);
 public record UpdateStatusRequest(string Status);
 public record RecordCheckRequest(string CheckType, string Status, int? Score, string? Remarks);
-public record ConvertRequest(string? CustomerType = null, decimal? AssignedCeiling = null, Guid? ExistingCustomerId = null, bool ConfirmVehicleTransfer = false, int? MaxPendingRcAllowed = null);
+// ConflictDecisions maps a vehicle role to "LEAD" (use the lead's value) or "VEHICLE" (keep the vehicle's value).
+public record ConvertRequest(
+    string? CustomerType = null,
+    decimal? AssignedCeiling = null,
+    Guid? ExistingCustomerId = null,
+    bool ConfirmVehicleTransfer = false,
+    int? MaxPendingRcAllowed = null,
+    Dictionary<string, string>? ConflictDecisions = null);

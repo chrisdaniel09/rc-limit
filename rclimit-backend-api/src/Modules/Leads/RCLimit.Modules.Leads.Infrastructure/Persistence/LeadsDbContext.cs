@@ -10,6 +10,8 @@ public class LeadsDbContext : DbContext, ILeadsDbContext
 
     public DbSet<Lead> Leads => Set<Lead>();
     public DbSet<LeadCheckLog> LeadCheckLogs => Set<LeadCheckLog>();
+    public DbSet<ProductType> ProductTypes => Set<ProductType>();
+    public DbSet<ActionExecution> ActionExecutions => Set<ActionExecution>();
     public DbSet<LeadCustomer> LeadCustomers => Set<LeadCustomer>();
     public DbSet<LeadComment> LeadComments => Set<LeadComment>();
 

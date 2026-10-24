@@ -19,4 +19,7 @@ public record LeadDto(
     string RcCheckStatus,
     int? CibilScorePreview,
     Guid? ConvertedCustomerId,
-    DateTime CreatedAt);
+    DateTime CreatedAt,
+    string ProductTypeCode,
+    decimal? RequestedAmount,
+    string? ReferenceNumber);

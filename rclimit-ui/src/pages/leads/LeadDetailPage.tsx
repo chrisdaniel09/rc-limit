@@ -5,30 +5,47 @@ import { apiPut, apiPost, apiGet } from '../../api/client';
 import { useAuth } from '../../hooks/useAuth';
 import FormField from '../../components/FormField';
 import CommentsPanel from '../../components/CommentsPanel';
+import {
+  ACTION_LABELS,
+  ACTION_TAKES_SCORE,
+  OUTCOME_OPTIONS,
+  ROLE_OPTIONS,
+  type ActionRun,
+  type ProductAction,
+  type ProductField,
+  type ProductType,
+} from './productTypes';
 
 interface Lead {
   leadId: string;
   applicantName: string;
   whatsappPhoneNumber: string;
   contactPhone: string | null;
-  requestedLoanAmount: number | null;
-  vehicleRegistrationNumber: string;
   leadSource: string;
   referredByUserId: string | null;
   referredByUserName: string | null;
-  vahanValidationStatus: string;
   leadStatus: string;
   notes: string | null;
   assignedToUserId: string | null;
   assignedToUserName: string | null;
-  cibilCheckStatus: string;
-  rcCheckStatus: string;
-  cibilScorePreview: number | null;
   convertedCustomerId: string | null;
   convertedAt: string | null;
   convertedCustomerName: string | null;
   isLocked: boolean;
   createdAt: string;
+  productTypeCode: string;
+  requestedAmount: number | null;
+  referenceNumber: string | null;
+  productDetails: Record<string, string | number | null>;
+  fieldSchema: ProductField[];
+  configuredActions: ProductAction[];
+  actionHistory: ActionRun[];
+}
+
+interface ActionForm {
+  outcome: string;
+  score: string;
+  remarks: string;
 }
 
 interface CustomerMatch {
@@ -55,15 +72,27 @@ const REASON_STYLES: Record<string, string> = {
   NAME: 'bg-amber-100 text-amber-800',
 };
 
+// LEAD keeps the lead's value. VEHICLE keeps the value the vehicle already has.
+type ConflictChoice = 'LEAD' | 'VEHICLE';
+
+interface VehicleConflict {
+  role: string;
+  field: string;
+  currentValue: string | null;
+  leadValue: string | null;
+}
+
+// The vehicle is null when the lead's financial requirement has no vehicle.
 interface VehiclePreview {
   registrationNumber: string;
   status: string;
   currentOwnerName: string | null;
+  conflicts: VehicleConflict[];
 }
 
 interface ConversionPreview {
   customerMatches: CustomerMatch[];
-  vehicle: VehiclePreview;
+  vehicle: VehiclePreview | null;
 }
 
 interface StaffUser {
@@ -79,30 +108,11 @@ interface Comment {
   createdAt: string;
 }
 
-interface CheckLog {
-  logId: string;
-  checkType: string;
-  status: string;
-  score: number | null;
-  remarks: string | null;
-  source: string;
-  performedByUserId: string;
-  performedByUserName: string | null;
-  createdAt: string;
-}
-
 const LEAD_STATUSES = [
   { value: 'NEW', label: 'New' },
   { value: 'IN_PROGRESS', label: 'In Progress' },
   { value: 'QUALIFIED', label: 'Qualified' },
   { value: 'REJECTED', label: 'Rejected' },
-];
-
-const CHECK_STATUSES = [
-  { value: 'NOT_STARTED', label: 'Not Started' },
-  { value: 'IN_PROGRESS', label: 'In Progress' },
-  { value: 'PASSED', label: 'Passed' },
-  { value: 'FAILED', label: 'Failed' },
 ];
 
 const LEAD_SOURCE_LABELS: Record<string, string> = {
@@ -175,9 +185,9 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
   );
 }
 
-function StatusPill({ status }: { status: string }) {
-  const styles = TONE_CLASSES[getCheckTone(status)];
-  const label = CHECK_STATUSES.find(s => s.value === status)?.label ?? status;
+function OutcomePill({ outcome }: { outcome: string | null }) {
+  const styles = TONE_CLASSES[outcome ? getCheckTone(outcome) : 'neutral'];
+  const label = OUTCOME_OPTIONS.find(o => o.value === outcome)?.label ?? 'Not run';
   return <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${styles.card} ${styles.text}`}>{label}</span>;
 }
 
@@ -203,19 +213,6 @@ function TextAreaField({ label, value, onChange, placeholder, disabled }: {
   );
 }
 
-function AutomatedCheckButton({ onClick, busy }: { onClick: () => void; busy: boolean }) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={busy}
-      className="w-full rounded-lg border border-indigo-200 bg-indigo-50 px-4 py-2.5 text-sm font-medium text-indigo-700 hover:bg-indigo-100 disabled:opacity-50"
-    >
-      {busy ? 'Processing…' : '✨ Initiate automated check'}
-    </button>
-  );
-}
-
 export default function LeadDetailPage() {
   const navigate = useNavigate();
   const { id: leadId } = useParams<{ id: string }>();
@@ -223,27 +220,23 @@ export default function LeadDetailPage() {
   const { data: lead, loading: leadLoading, refetch } = useFetch<Lead>(`/api/v1/leads/${leadId}`);
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const { data: comments = [] } = useFetch<Comment[]>(`/api/v1/leads/${leadId}/comments`);
+  const { data: productTypes } = useFetch<ProductType[]>('/api/v1/lead-product-types');
 
   const [loading, setLoading] = useState(false);
   const [assignedToUserId, setAssignedToUserId] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
-  const [cibilStatus, setCibilStatus] = useState('');
-  const [cibilScore, setCibilScore] = useState('');
-  const [cibilRemarks, setCibilRemarks] = useState('');
-  const [rcStatus, setRcStatus] = useState('');
-  const [rcRemarks, setRcRemarks] = useState('');
+  const [actionForms, setActionForms] = useState<Record<string, ActionForm>>({});
+  const [runningActions, setRunningActions] = useState(false);
   const [customerType, setCustomerType] = useState('DEALER');
   const [assignedCeiling, setAssignedCeiling] = useState('');
   const [showCommentsModal, setShowCommentsModal] = useState(false);
-  const [automatedCibilInProgress, setAutomatedCibilInProgress] = useState(false);
-  const [automatedRcInProgress, setAutomatedRcInProgress] = useState(false);
-  const [checkHistory] = useState<CheckLog[]>([]);
 
   // Conversion dialog state
   const [showConvertDialog, setShowConvertDialog] = useState(false);
   const [conversionMode, setConversionMode] = useState<'new' | 'existing'>('new');
   const [selectedCustomerId, setSelectedCustomerId] = useState<string | null>(null);
   const [confirmVehicleTransfer, setConfirmVehicleTransfer] = useState(false);
+  const [conflictDecisions, setConflictDecisions] = useState<Record<string, ConflictChoice>>({});
   const [conversionPreview, setConversionPreview] = useState<ConversionPreview | null>(null);
   const [loadingPreview, setLoadingPreview] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
@@ -286,26 +279,20 @@ export default function LeadDetailPage() {
     setSyncedLead(lead);
     setAssignedToUserId(lead.assignedToUserId ?? '');
     setLeadStatus(lead.leadStatus);
-    setCibilStatus(lead.cibilCheckStatus);
-    setCibilScore(lead.cibilScorePreview?.toString() ?? '');
-    setRcStatus(lead.rcCheckStatus);
+    setActionForms(Object.fromEntries(
+      lead.configuredActions.map((action) => [action.code, { outcome: '', score: '', remarks: '' }]),
+    ));
   }
 
   const canEdit = hasRight('leads.edit') && !lead?.isLocked;
 
-  const getLastCheckLog = (checkType: string): CheckLog | undefined => {
-    return checkHistory.find(log => log.checkType === checkType);
-  };
+  // The most recent run of an action, or none if it has not been run.
+  const latestRun = (actionCode: string): ActionRun | undefined =>
+    lead?.actionHistory.find((run) => run.actionCode === actionCode);
 
-  const getLastCheckTimestamp = (checkType: string) => {
-    const lastCheck = getLastCheckLog(checkType);
-    if (!lastCheck) return null;
-    const date = new Date(lastCheck.createdAt);
-    return {
-      date: date.toLocaleDateString('en-IN', { year: 'numeric', month: 'short', day: 'numeric' }),
-      time: date.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }),
-      performer: lastCheck.performedByUserName || lastCheck.performedByUserId,
-    };
+  const latestOutcome = (actionCode: string): string | null => {
+    const run = latestRun(actionCode);
+    return run?.response?.outcome ?? null;
   };
 
   const fetchConversionPreview = async (customerId?: string) => {
@@ -330,6 +317,7 @@ export default function LeadDetailPage() {
     setCustomerSearch('');
     setSearchResults([]);
     setConfirmVehicleTransfer(false);
+    setConflictDecisions({});
     await fetchConversionPreview();
   };
 
@@ -340,7 +328,15 @@ export default function LeadDetailPage() {
     await fetchConversionPreview(customer.customerId);
   };
 
+  // Every conflict on the vehicle needs an explicit choice. Converting with an undecided conflict is refused.
+  const undecidedConflicts = (conversionPreview?.vehicle?.conflicts ?? []).filter((c) => !conflictDecisions[c.role]);
+
   const handleConvert = async () => {
+    if (undecidedConflicts.length > 0) {
+      alert(`Choose which value to keep for: ${undecidedConflicts.map((c) => c.field).join(', ')}.`);
+      return;
+    }
+
     if (conversionMode === 'new') {
       if (!customerType || !assignedCeiling) {
         alert('Please enter customer type and sub-limit ceiling');
@@ -351,7 +347,7 @@ export default function LeadDetailPage() {
         alert('Please select a customer');
         return;
       }
-      if (conversionPreview?.vehicle.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) {
+      if (conversionPreview?.vehicle?.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) {
         alert('Please confirm vehicle transfer');
         return;
       }
@@ -371,6 +367,8 @@ export default function LeadDetailPage() {
         payload.confirmVehicleTransfer = confirmVehicleTransfer;
       }
 
+      if (conversionPreview?.vehicle) payload.conflictDecisions = conflictDecisions;
+
       const response = await apiPost<any>(`/api/v1/leads/${leadId}/convert`, payload);
       navigate(`/customers/${response.data.customerId}`);
     } catch (err) {
@@ -388,24 +386,6 @@ export default function LeadDetailPage() {
     try {
       await apiPut(`/api/v1/leads/${lead!.leadId}/assign`, { assigneeUserId: assignedToUserId || null });
       await apiPut(`/api/v1/leads/${lead!.leadId}/status`, { status: leadStatus });
-
-      if (cibilStatus !== lead!.cibilCheckStatus) {
-        await apiPost(`/api/v1/leads/${lead!.leadId}/checks`, {
-          checkType: 'CIBIL',
-          status: cibilStatus,
-          score: cibilScore ? parseInt(cibilScore) : null,
-          remarks: cibilRemarks,
-        });
-      }
-
-      if (rcStatus !== lead!.rcCheckStatus) {
-        await apiPost(`/api/v1/leads/${lead!.leadId}/checks`, {
-          checkType: 'RC',
-          status: rcStatus,
-          remarks: rcRemarks,
-        });
-      }
-
       refetch();
       alert('Changes saved successfully.');
     } catch (err) {
@@ -416,30 +396,37 @@ export default function LeadDetailPage() {
     }
   };
 
-  const handleInitiateAutomatedCheck = async (checkType: 'CIBIL' | 'RC') => {
+  // Sends every check the user filled in, in the product's order. The server stops at the first failed run.
+  const handleRunActions = async () => {
     if (!canEdit) return;
 
-    if (checkType === 'CIBIL') {
-      setAutomatedCibilInProgress(true);
-    } else {
-      setAutomatedRcInProgress(true);
+    const requests: Record<string, Record<string, unknown>> = {};
+    for (const action of lead!.configuredActions) {
+      const form = actionForms[action.code];
+      if (!form?.outcome) continue;
+
+      const request: Record<string, unknown> = { outcome: form.outcome };
+      if (ACTION_TAKES_SCORE[action.code] && form.score.trim()) request.score = parseInt(form.score);
+      if (form.remarks.trim()) request.remarks = form.remarks.trim();
+      requests[action.code] = request;
     }
 
+    if (Object.keys(requests).length === 0) {
+      alert('Choose an outcome for at least one check.');
+      return;
+    }
+
+    setRunningActions(true);
     try {
-      await apiPost(`/api/v1/leads/${lead!.leadId}/checks/initiate-automated`, {
-        checkType: checkType,
-      });
-      alert(`Automated ${checkType} check initiated. Processing in background...`);
-      setTimeout(() => refetch(), 2000);
+      const response = await apiPost<{ data: ActionRun[] }>(`/api/v1/leads/${lead!.leadId}/actions`, requests);
+      const failed = response.data.find((run) => run.status === 'FAILED');
+      refetch();
+      if (failed) alert(`${ACTION_LABELS[failed.actionCode] ?? failed.actionCode} was not recorded: ${failed.error ?? 'unknown error'}`);
     } catch (err) {
-      console.error(`Failed to initiate ${checkType} check:`, err);
-      alert(`Failed to initiate ${checkType} check. Please try again.`);
+      console.error('Failed to run checks:', err);
+      alert(err instanceof Error && err.message ? err.message : 'Failed to run checks. Please try again.');
     } finally {
-      if (checkType === 'CIBIL') {
-        setAutomatedCibilInProgress(false);
-      } else {
-        setAutomatedRcInProgress(false);
-      }
+      setRunningActions(false);
     }
   };
 
@@ -473,6 +460,9 @@ export default function LeadDetailPage() {
   const userOptions = users?.map(u => ({ value: u.userId, label: u.fullName || u.userId })) ?? [];
   const sourceLabel = LEAD_SOURCE_LABELS[lead.leadSource] ?? lead.leadSource;
   const lastComment = comments && comments.length > 0 ? comments[0] : null;
+  const requirementLabel = productTypes?.find(p => p.code === lead.productTypeCode)?.label ?? lead.productTypeCode;
+  const formatDetail = (value: string | number | null | undefined) =>
+    value === null || value === undefined || value === '' ? '-' : String(value);
 
   return (
     <div className="flex flex-col h-[calc(100vh-120px)] bg-gray-50 overflow-hidden">
@@ -531,8 +521,17 @@ export default function LeadDetailPage() {
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
-          <StatusTile label="CIBIL check" value={lead.cibilCheckStatus} tone={getCheckTone(lead.cibilCheckStatus)} />
-          <StatusTile label="RC check" value={lead.rcCheckStatus} tone={getCheckTone(lead.rcCheckStatus)} />
+          {lead.configuredActions.map((action) => {
+            const outcome = latestOutcome(action.code);
+            return (
+              <StatusTile
+                key={action.code}
+                label={ACTION_LABELS[action.code] ?? action.code}
+                value={outcome ?? 'Not run'}
+                tone={outcome ? getCheckTone(outcome) : 'neutral'}
+              />
+            );
+          })}
           <StatusTile label="Lead status" value={lead.leadStatus} tone={getLeadStatusTone(lead.leadStatus)} />
         </div>
       </div>
@@ -591,79 +590,89 @@ export default function LeadDetailPage() {
               </Card>
 
               <Card title="Lead information">
-                <dl className="grid grid-cols-3 gap-4 text-sm">
+                <dl className="grid grid-cols-2 gap-4 text-sm">
+                  <InfoItem label="Financial requirement" value={requirementLabel} />
                   <InfoItem label="Source" value={sourceLabel} />
                   <InfoItem label="Phone" value={lead.whatsappPhoneNumber} />
                   <InfoItem
                     label="Requested amount"
-                    value={lead.requestedLoanAmount ? `₹${lead.requestedLoanAmount.toLocaleString('en-IN')}` : '-'}
+                    value={lead.requestedAmount ? `₹${lead.requestedAmount.toLocaleString('en-IN')}` : '-'}
                   />
+                  <InfoItem label="Reference" value={lead.referenceNumber ?? '-'} />
+                  {lead.fieldSchema.map((field) => (
+                    <InfoItem key={field.key} label={field.label} value={formatDetail(lead.productDetails[field.key])} />
+                  ))}
                 </dl>
               </Card>
             </div>
 
             {/* Right column: verifications */}
             <div className="space-y-6">
-              <Card title="CIBIL verification" action={<StatusPill status={lead.cibilCheckStatus} />}>
-                {getLastCheckTimestamp('CIBIL') && (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                    <p className="font-medium">Last checked: {getLastCheckTimestamp('CIBIL')?.date} at {getLastCheckTimestamp('CIBIL')?.time}</p>
-                    <p>By: {getLastCheckTimestamp('CIBIL')?.performer}</p>
-                  </div>
+              <Card
+                title="Verifications"
+                action={
+                  canEdit && lead.configuredActions.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={handleRunActions}
+                      disabled={runningActions}
+                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                    >
+                      {runningActions ? 'Running…' : 'Record checks'}
+                    </button>
+                  ) : undefined
+                }
+              >
+                {lead.configuredActions.length === 0 && (
+                  <p className="text-sm text-gray-500">This financial requirement has no verification checks.</p>
                 )}
-                <div className="grid grid-cols-2 gap-4">
-                  <FormField
-                    label="Status"
-                    value={cibilStatus}
-                    onChange={setCibilStatus}
-                    options={CHECK_STATUSES}
-                    disabled={!canEdit}
-                  />
-                  <FormField
-                    label="Credit score"
-                    value={cibilScore}
-                    onChange={setCibilScore}
-                    type="number"
-                    placeholder="750"
-                    disabled={!canEdit}
-                  />
-                </div>
-                <TextAreaField
-                  label="Remarks"
-                  value={cibilRemarks}
-                  onChange={setCibilRemarks}
-                  placeholder="Add notes about credit history"
-                  disabled={!canEdit}
-                />
-                {canEdit && (
-                  <AutomatedCheckButton onClick={() => handleInitiateAutomatedCheck('CIBIL')} busy={automatedCibilInProgress} />
-                )}
+                {lead.configuredActions.map((action) => {
+                  const form = actionForms[action.code] ?? { outcome: '', score: '', remarks: '' };
+                  const setForm = (patch: Partial<ActionForm>) =>
+                    setActionForms({ ...actionForms, [action.code]: { ...form, ...patch } });
+                  return (
+                    <div key={action.code} className="space-y-3 rounded-lg border border-gray-200 p-4">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-semibold text-gray-900">{ACTION_LABELS[action.code] ?? action.code}</p>
+                        <OutcomePill outcome={latestOutcome(action.code)} />
+                      </div>
+                      {canEdit && (
+                        <>
+                          <div className="grid grid-cols-2 gap-4">
+                            <FormField label="Outcome" value={form.outcome} onChange={(v) => setForm({ outcome: v })} options={OUTCOME_OPTIONS} />
+                            {ACTION_TAKES_SCORE[action.code] && (
+                              <FormField label="Score" type="number" value={form.score} onChange={(v) => setForm({ score: v })} placeholder="750" />
+                            )}
+                          </div>
+                          <TextAreaField label="Remarks" value={form.remarks} onChange={(v) => setForm({ remarks: v })} placeholder="Notes about this check" />
+                        </>
+                      )}
+                    </div>
+                  );
+                })}
               </Card>
 
-              <Card title="RC verification" action={<StatusPill status={lead.rcCheckStatus} />}>
-                {getLastCheckTimestamp('RC') && (
-                  <div className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-700">
-                    <p className="font-medium">Last checked: {getLastCheckTimestamp('RC')?.date} at {getLastCheckTimestamp('RC')?.time}</p>
-                    <p>By: {getLastCheckTimestamp('RC')?.performer}</p>
-                  </div>
-                )}
-                <FormField
-                  label="Status"
-                  value={rcStatus}
-                  onChange={setRcStatus}
-                  options={CHECK_STATUSES}
-                  disabled={!canEdit}
-                />
-                <TextAreaField
-                  label="Remarks"
-                  value={rcRemarks}
-                  onChange={setRcRemarks}
-                  placeholder="Add notes about the vehicle registration"
-                  disabled={!canEdit}
-                />
-                {canEdit && (
-                  <AutomatedCheckButton onClick={() => handleInitiateAutomatedCheck('RC')} busy={automatedRcInProgress} />
-                )}
+              <Card title="Check history">
+                {lead.actionHistory.length === 0 && <p className="text-sm text-gray-500">No checks recorded yet.</p>}
+                <ul className="divide-y divide-gray-100">
+                  {lead.actionHistory.map((run) => (
+                    <li key={run.executionId} className="flex items-start justify-between gap-4 py-3 text-sm">
+                      <div className="min-w-0">
+                        <p className="font-medium text-gray-900">{ACTION_LABELS[run.actionCode] ?? run.actionCode}</p>
+                        {run.status === 'FAILED' ? (
+                          <p className="text-red-700">Not recorded: {run.error ?? 'unknown error'}</p>
+                        ) : (
+                          <p className="text-gray-600">
+                            {OUTCOME_OPTIONS.find(o => o.value === run.response?.outcome)?.label ?? run.response?.outcome}
+                            {run.response?.score != null && ` · score ${run.response.score}`}
+                            {run.response?.remarks && ` · ${run.response.remarks}`}
+                          </p>
+                        )}
+                      </div>
+                      <span className="shrink-0 text-xs text-gray-400">{run.status === 'FAILED' ? 'Failed' : 'Recorded'}</span>
+                    </li>
+                  ))}
+                </ul>
               </Card>
             </div>
           </div>
@@ -673,7 +682,7 @@ export default function LeadDetailPage() {
       {/* Footer */}
       {canEdit && (
         <div className="flex flex-shrink-0 items-center justify-between gap-4 border-t border-gray-200 bg-white px-6 py-4">
-          <p className="text-sm text-gray-500">Changes to assignment, status and verification checks will be saved.</p>
+          <p className="text-sm text-gray-500">Changes to assignment and lead status will be saved.</p>
           <button
             onClick={handleSaveChanges}
             disabled={loading}
@@ -882,6 +891,54 @@ export default function LeadDetailPage() {
                         )}
                       </div>
 
+                      {/* Vehicle conflicts: the vehicle holds a different value from the lead. Each needs a choice. */}
+                      {conversionPreview.vehicle && conversionPreview.vehicle.conflicts.length > 0 && (
+                        <div className="rounded-lg border border-gray-200 bg-white p-4 space-y-3">
+                          <div>
+                            <p className="text-sm font-semibold text-gray-900">Vehicle details differ</p>
+                            <p className="text-xs text-gray-600">
+                              Choose which value to keep for each field. Blank vehicle fields are filled from the lead.
+                            </p>
+                          </div>
+                          <table className="w-full text-sm">
+                            <thead>
+                              <tr className="text-left text-xs text-gray-500">
+                                <th className="pb-2 font-medium">Field</th>
+                                <th className="pb-2 font-medium">Vehicle</th>
+                                <th className="pb-2 font-medium">Lead</th>
+                                <th className="pb-2 font-medium">Keep</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {conversionPreview.vehicle.conflicts.map((conflict) => (
+                                <tr key={conflict.role} className="border-t border-gray-100">
+                                  <td className="py-2 font-medium text-gray-900">
+                                    {ROLE_OPTIONS.find((r) => r.value === conflict.role)?.label ?? conflict.field}
+                                  </td>
+                                  <td className="py-2 text-gray-700">{conflict.currentValue}</td>
+                                  <td className="py-2 text-gray-700">{conflict.leadValue}</td>
+                                  <td className="py-2">
+                                    <div className="flex gap-3">
+                                      {(['VEHICLE', 'LEAD'] as const).map((choice) => (
+                                        <label key={choice} className="flex items-center gap-1 text-xs text-gray-700">
+                                          <input
+                                            type="radio"
+                                            name={`conflict-${conflict.role}`}
+                                            checked={conflictDecisions[conflict.role] === choice}
+                                            onChange={() => setConflictDecisions({ ...conflictDecisions, [conflict.role]: choice })}
+                                          />
+                                          {choice === 'VEHICLE' ? 'Vehicle' : 'Lead'}
+                                        </label>
+                                      ))}
+                                    </div>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+
                       {/* Vehicle Preview */}
                       {selectedCustomerId && conversionPreview.vehicle && (
                         <div className="p-4 bg-amber-50 rounded-lg border border-amber-200 space-y-3">
@@ -952,7 +1009,8 @@ export default function LeadDetailPage() {
                   loading ||
                   loadingPreview ||
                   (conversionMode === 'new' && (!customerType || !assignedCeiling)) ||
-                  (conversionMode === 'existing' && (!selectedCustomerId || (conversionPreview?.vehicle.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) || conversionPreview?.vehicle.status === 'BLOCKED'))
+                  undecidedConflicts.length > 0 ||
+                  (conversionMode === 'existing' && (!selectedCustomerId || (conversionPreview?.vehicle?.status === 'OWNED_BY_OTHER' && !confirmVehicleTransfer) || conversionPreview?.vehicle?.status === 'BLOCKED'))
                 }
                 className="px-4 py-2 rounded-lg bg-green-600 text-white text-sm font-medium hover:bg-green-700 disabled:opacity-50 transition-colors"
               >

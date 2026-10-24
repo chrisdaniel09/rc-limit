@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 namespace RCLimit.Modules.Leads.Domain.Entities;
 
 public class Lead
@@ -14,6 +16,11 @@ public class Lead
     public string? VehicleRegistrationNumber { get; set; }
     public string VahanValidationStatus { get; set; } = "PENDING";
     public int? CibilScorePreview { get; set; }
+    // Matches the column default until the create flow sends the product type itself.
+    public string ProductTypeCode { get; set; } = "USED_CV";
+    public decimal? RequestedAmount { get; set; }
+    public Dictionary<string, JsonElement> ProductDetails { get; set; } = new();
+    public string? ReferenceNumber { get; set; }
     public string LeadStatus { get; set; } = "NEW";
     public string? Notes { get; set; }
     public Guid? AssignedToUserId { get; set; }

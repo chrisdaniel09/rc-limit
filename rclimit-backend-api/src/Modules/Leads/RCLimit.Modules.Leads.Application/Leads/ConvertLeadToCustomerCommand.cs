@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Leads.Application.Abstractions;
+using RCLimit.Modules.Leads.Application.Actions;
 using RCLimit.Modules.Loans.Contracts.Customers;
 using RCLimit.Modules.Loans.Contracts.Vehicles;
 using RCLimit.Modules.Leads.Domain.Entities;
@@ -10,13 +11,16 @@ using RCLimit.Modules.Leads.Domain.ValueObjects;
 
 namespace RCLimit.Modules.Leads.Application.Leads;
 
+// ConflictDecisions maps a vehicle role (for example "vehicle_make") to ConflictDecisions.UseLead or KeepVehicle.
+// Every conflict must have a decision, or the conversion is refused.
 public record ConvertLeadToCustomerCommand(
     Guid LeadId,
     string? CustomerType = null,
     decimal? AssignedCeiling = null,
     Guid? ExistingCustomerId = null,
     bool ConfirmVehicleTransfer = false,
-    int MaxPendingRcAllowed = 5) : IRequest<Guid>;
+    int MaxPendingRcAllowed = 5,
+    Dictionary<string, string>? ConflictDecisions = null) : IRequest<Guid>;
 
 public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadToCustomerCommand, Guid>
 {
@@ -48,8 +52,18 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
         if (lead.ConvertedCustomerId.HasValue)
             throw new BusinessRuleException("This lead has already been converted to a customer.");
 
-        var hasVehicle = !string.IsNullOrWhiteSpace(lead.VehicleRegistrationNumber);
-        var registrationNumber = lead.VehicleRegistrationNumber;
+        var productType = await _db.ProductTypes
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.TenantId == _tenant.TenantId && p.Code == lead.ProductTypeCode, cancellationToken);
+
+        // Null when the product has no vehicle. Otherwise the conflicts are resolved before any write.
+        var vehicle = LeadVehicleDetails.From(lead, productType);
+        var overwriteFields = new HashSet<string>();
+        if (vehicle is not null)
+        {
+            var conflicts = await _vehicles.GetConflictsAsync(vehicle, cancellationToken);
+            overwriteFields = ConflictDecisions.OverwriteFields(conflicts, request.ConflictDecisions).ToHashSet();
+        }
 
         Guid customerId;
         string linkType;
@@ -64,8 +78,8 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
                 throw new BusinessRuleException("Existing customer not found.");
 
             // Rules are checked before any write, so a rejected vehicle transfer leaves nothing behind.
-            if (hasVehicle)
-                await _vehicles.EnsureAssignableAsync(registrationNumber!, customerId, request.ConfirmVehicleTransfer, cancellationToken);
+            if (vehicle is not null)
+                await _vehicles.EnsureAssignableAsync(vehicle.RegistrationNumber, customerId, request.ConfirmVehicleTransfer, cancellationToken);
 
             linkType = "LINKED_EXISTING";
             // Record the strongest reason the matcher gives for this customer. A customer picked by search is MANUAL.
@@ -78,8 +92,8 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
             if (string.IsNullOrWhiteSpace(request.CustomerType) || !request.AssignedCeiling.HasValue)
                 throw new BusinessRuleException("CustomerType and AssignedCeiling are required when creating a new customer.");
 
-            if (hasVehicle)
-                await _vehicles.EnsureAssignableAsync(registrationNumber!, null, request.ConfirmVehicleTransfer, cancellationToken);
+            if (vehicle is not null)
+                await _vehicles.EnsureAssignableAsync(vehicle.RegistrationNumber, null, request.ConfirmVehicleTransfer, cancellationToken);
 
             customerId = await _customers.CreateFromLeadAsync(new CreateCustomerFromLeadRequest(
                 CustomerType: request.CustomerType,
@@ -87,13 +101,13 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
                 MaxPendingRcAllowed: request.MaxPendingRcAllowed,
                 LegalName: lead.ApplicantName ?? "Unknown",
                 PhoneNumber: lead.ContactPhone ?? lead.WhatsappPhoneNumber,
-                CibilScore: lead.CibilScorePreview), cancellationToken);
+                CibilScore: await CibilScoreAsync(lead, cancellationToken)), cancellationToken);
 
             linkType = "CREATED";
         }
 
-        if (hasVehicle)
-            await _vehicles.AssignToCustomerAsync(registrationNumber!, customerId, lead.LeadId, request.ConfirmVehicleTransfer, cancellationToken);
+        if (vehicle is not null)
+            await _vehicles.AssignToCustomerAsync(vehicle, customerId, lead.LeadId, request.ConfirmVehicleTransfer, overwriteFields, cancellationToken);
 
         // Create lead_customers record
         var leadCustomer = new LeadCustomer
@@ -118,5 +132,21 @@ public class ConvertLeadToCustomerCommandHandler : IRequestHandler<ConvertLeadTo
         await _db.SaveChangesAsync(cancellationToken);
 
         return customerId;
+    }
+
+    // The latest successful CIBIL_CHECK run is the source of truth. The legacy preview column is the fallback
+    // for leads whose score was recorded before actions existed.
+    private async Task<int?> CibilScoreAsync(Lead lead, CancellationToken cancellationToken)
+    {
+        var responses = await _db.ActionExecutions
+            .AsNoTracking()
+            .Where(a => a.LeadId == lead.LeadId
+                && a.ActionCode == ActionCodes.CibilCheck
+                && a.Status == ActionStatuses.Succeeded)
+            .OrderByDescending(a => a.StartedAt)
+            .Select(a => a.ResponsePayload)
+            .ToListAsync(cancellationToken);
+
+        return ActionScores.LatestScore(responses) ?? lead.CibilScorePreview;
     }
 }

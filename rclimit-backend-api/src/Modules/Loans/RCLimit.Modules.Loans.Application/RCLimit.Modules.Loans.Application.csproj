@@ -11,6 +11,7 @@
   <ItemGroup>
     <ProjectReference Include="..\RCLimit.Modules.Loans.Domain\RCLimit.Modules.Loans.Domain.csproj" />
     <ProjectReference Include="..\RCLimit.Modules.Loans.Contracts\RCLimit.Modules.Loans.Contracts.csproj" />
+    <ProjectReference Include="..\..\Leads\RCLimit.Modules.Leads.Contracts\RCLimit.Modules.Leads.Contracts.csproj" />
     <ProjectReference Include="..\..\Accounting\RCLimit.Modules.Accounting.Contracts\RCLimit.Modules.Accounting.Contracts.csproj" />
     <ProjectReference Include="..\..\Identity\RCLimit.Modules.Identity.Contracts\RCLimit.Modules.Identity.Contracts.csproj" />
   </ItemGroup>

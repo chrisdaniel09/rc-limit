@@ -18,6 +18,12 @@
     <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Domain/RCLimit.Modules.Identity.Domain.csproj" />
     <Project Path="src/Modules/Identity/RCLimit.Modules.Identity.Infrastructure/RCLimit.Modules.Identity.Infrastructure.csproj" />
   </Folder>
+  <Folder Name="/src/Modules/Leads/">
+    <Project Path="src/Modules/Leads/RCLimit.Modules.Leads.Application/RCLimit.Modules.Leads.Application.csproj" />
+    <Project Path="src/Modules/Leads/RCLimit.Modules.Leads.Contracts/RCLimit.Modules.Leads.Contracts.csproj" />
+    <Project Path="src/Modules/Leads/RCLimit.Modules.Leads.Domain/RCLimit.Modules.Leads.Domain.csproj" />
+    <Project Path="src/Modules/Leads/RCLimit.Modules.Leads.Infrastructure/RCLimit.Modules.Leads.Infrastructure.csproj" />
+  </Folder>
   <Folder Name="/src/Modules/Loans/">
     <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Application/RCLimit.Modules.Loans.Application.csproj" />
     <Project Path="src/Modules/Loans/RCLimit.Modules.Loans.Contracts/RCLimit.Modules.Loans.Contracts.csproj" />

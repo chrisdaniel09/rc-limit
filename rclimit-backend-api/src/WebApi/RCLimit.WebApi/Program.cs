@@ -15,6 +15,7 @@ using RCLimit.BuildingBlocks.Infrastructure.Middleware;
 using RCLimit.BuildingBlocks.Infrastructure.Stubs;
 using RCLimit.Modules.Accounting.Infrastructure;
 using RCLimit.Modules.Identity.Infrastructure;
+using RCLimit.Modules.Leads.Infrastructure;
 using RCLimit.Modules.Loans.Infrastructure;
 using RCLimit.Modules.Partners.Infrastructure;
 using RCLimit.Modules.System.Infrastructure;
@@ -44,6 +45,7 @@ try
     builder.Services.AddControllers()
         .AddApplicationPart(typeof(IdentityModuleRegistration).Assembly)
         .AddApplicationPart(typeof(AccountingModuleRegistration).Assembly)
+        .AddApplicationPart(typeof(LeadsModuleRegistration).Assembly)
         .AddApplicationPart(typeof(LoansModuleRegistration).Assembly)
         .AddApplicationPart(typeof(PartnersModuleRegistration).Assembly)
         .AddApplicationPart(typeof(SystemModuleRegistration).Assembly);
@@ -71,6 +73,7 @@ try
 
     builder.Services.AddIdentityModule(builder.Configuration);
     builder.Services.AddAccountingModule(builder.Configuration);
+    builder.Services.AddLeadsModule(builder.Configuration);
     builder.Services.AddLoansModule(builder.Configuration);
     builder.Services.AddPartnersModule(builder.Configuration);
     builder.Services.AddSystemModule(builder.Configuration);

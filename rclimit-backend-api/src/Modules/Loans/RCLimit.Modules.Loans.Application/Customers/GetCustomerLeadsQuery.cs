@@ -1,8 +1,8 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
+using RCLimit.Modules.Leads.Contracts;
 using RCLimit.Modules.Loans.Application.Abstractions;
-using RCLimit.Modules.Loans.Domain.Entities;
 
 namespace RCLimit.Modules.Loans.Application.Customers;
 
@@ -21,54 +21,41 @@ public record CustomerLeadDto(
 public class GetCustomerLeadsQueryHandler : IRequestHandler<GetCustomerLeadsQuery, List<CustomerLeadDto>>
 {
     private readonly ILoansDbContext _db;
-    private readonly ITenantContext _tenant;
+    private readonly ILeadsModuleApi _leads;
 
-    public GetCustomerLeadsQueryHandler(ILoansDbContext db, ITenantContext tenant)
+    public GetCustomerLeadsQueryHandler(ILoansDbContext db, ILeadsModuleApi leads)
     {
         _db = db;
-        _tenant = tenant;
+        _leads = leads;
     }
 
     public async Task<List<CustomerLeadDto>> Handle(GetCustomerLeadsQuery request, CancellationToken cancellationToken)
     {
-        var leads = await _db.LeadCustomers
-            .AsNoTracking()
-            .Where(lc => lc.TenantId == _tenant.TenantId && lc.CustomerId == request.CustomerId)
-            .Include(lc => new { })
-            .OrderByDescending(lc => lc.LinkedAt)
-            .ToListAsync(cancellationToken);
+        var links = await _leads.GetLeadsForCustomerAsync(request.CustomerId, cancellationToken);
 
         var result = new List<CustomerLeadDto>();
 
-        foreach (var leadCustomer in leads)
+        foreach (var link in links)
         {
-            var lead = await _db.Leads
-                .AsNoTracking()
-                .FirstOrDefaultAsync(l => l.LeadId == leadCustomer.LeadId, cancellationToken);
-
-            if (lead == null) continue;
-
-            // Get vehicle info from customer_vehicles if this lead was the source
+            // Vehicle action comes from the ownership history, which belongs to the Loans module.
             var vehicleInfo = await _db.CustomerVehicles
                 .AsNoTracking()
-                .FirstOrDefaultAsync(cv => cv.SourceLeadId == leadCustomer.LeadId, cancellationToken);
+                .FirstOrDefaultAsync(cv => cv.SourceLeadId == link.LeadId, cancellationToken);
 
-            var vehicleReg = lead.VehicleRegistrationNumber;
             string? vehicleAction = null;
-
             if (vehicleInfo != null)
             {
                 vehicleAction = vehicleInfo.OwnedTo == null ? "CURRENT" : vehicleInfo.EndReason;
             }
 
             result.Add(new CustomerLeadDto(
-                lead.LeadId,
-                lead.ApplicantName ?? "Unknown",
-                lead.LeadSource,
-                lead.LeadStatus,
-                lead.CreatedAt,
-                leadCustomer.LinkedAt,
-                vehicleReg,
+                link.LeadId,
+                link.ApplicantName ?? "Unknown",
+                link.LeadSource,
+                link.LeadStatus,
+                link.CreatedAt,
+                link.LinkedAt,
+                link.VehicleRegistrationNumber,
                 vehicleAction));
         }
 

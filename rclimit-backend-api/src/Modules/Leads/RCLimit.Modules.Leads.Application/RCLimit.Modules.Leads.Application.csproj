@@ -1,0 +1,17 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="10.0.4" />
+    <PackageReference Include="MediatR" Version="12.4.1" />
+  </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\RCLimit.Modules.Leads.Domain\RCLimit.Modules.Leads.Domain.csproj" />
+    <ProjectReference Include="..\RCLimit.Modules.Leads.Contracts\RCLimit.Modules.Leads.Contracts.csproj" />
+    <ProjectReference Include="..\..\Identity\RCLimit.Modules.Identity.Contracts\RCLimit.Modules.Identity.Contracts.csproj" />
+    <ProjectReference Include="..\..\Loans\RCLimit.Modules.Loans.Contracts\RCLimit.Modules.Loans.Contracts.csproj" />
+  </ItemGroup>
+</Project>

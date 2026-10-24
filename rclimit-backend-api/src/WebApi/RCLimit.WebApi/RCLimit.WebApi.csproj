@@ -21,6 +21,7 @@
   <ItemGroup>
     <ProjectReference Include="..\..\Modules\Identity\RCLimit.Modules.Identity.Infrastructure\RCLimit.Modules.Identity.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Accounting\RCLimit.Modules.Accounting.Infrastructure\RCLimit.Modules.Accounting.Infrastructure.csproj" />
+    <ProjectReference Include="..\..\Modules\Leads\RCLimit.Modules.Leads.Infrastructure\RCLimit.Modules.Leads.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Loans\RCLimit.Modules.Loans.Infrastructure\RCLimit.Modules.Loans.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\Partners\RCLimit.Modules.Partners.Infrastructure\RCLimit.Modules.Partners.Infrastructure.csproj" />
     <ProjectReference Include="..\..\Modules\System\RCLimit.Modules.System.Infrastructure\RCLimit.Modules.System.Infrastructure.csproj" />

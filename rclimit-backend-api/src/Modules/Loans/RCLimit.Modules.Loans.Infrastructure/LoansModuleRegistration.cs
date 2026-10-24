@@ -3,6 +3,9 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Contracts;
+using RCLimit.Modules.Loans.Contracts.Customers;
+using RCLimit.Modules.Loans.Contracts.Vehicles;
+using RCLimit.Modules.Loans.Infrastructure.ModuleApis;
 using RCLimit.Modules.Loans.Infrastructure.Persistence;
 
 namespace RCLimit.Modules.Loans.Infrastructure;
@@ -16,6 +19,8 @@ public static class LoansModuleRegistration
 
         services.AddScoped<ILoansDbContext>(sp => sp.GetRequiredService<LoansDbContext>());
         services.AddScoped<ILoansModuleApi, LoansModuleApi>();
+        services.AddScoped<ICustomersModuleApi, CustomersModuleApi>();
+        services.AddScoped<IVehiclesModuleApi, VehiclesModuleApi>();
 
         services.AddMediatR(cfg =>
             cfg.RegisterServicesFromAssembly(typeof(ILoansDbContext).Assembly));

@@ -34,7 +34,6 @@ public class AddCommentCommandHandler : IRequestHandler<AddCommentCommand, Unit>
         // Verify entity exists and belongs to this tenant
         bool entityExists = request.EntityType switch
         {
-            CommentEntityTypes.Lead => await _db.Leads.AnyAsync(l => l.LeadId == request.EntityId && l.TenantId == _tenant.TenantId, cancellationToken),
             CommentEntityTypes.Customer => await _db.Customers.AnyAsync(c => c.CustomerId == request.EntityId && c.TenantId == _tenant.TenantId, cancellationToken),
             CommentEntityTypes.Loan => false, // Loan support to be added later
             _ => throw new BusinessRuleException($"Invalid entity type: {request.EntityType}")

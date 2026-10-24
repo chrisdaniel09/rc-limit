@@ -16,14 +16,11 @@ public class LoansDbContext : DbContext, ILoansDbContext
     public DbSet<LoanTransaction> LoanTransactions => Set<LoanTransaction>();
     public DbSet<DisbursalLineItem> DisbursalLineItems => Set<DisbursalLineItem>();
     public DbSet<RcPipelineTracker> RcPipelineTrackers => Set<RcPipelineTracker>();
-    public DbSet<Lead> Leads => Set<Lead>();
-    public DbSet<LeadCheckLog> LeadCheckLogs => Set<LeadCheckLog>();
     public DbSet<EntityComment> EntityComments => Set<EntityComment>();
     public DbSet<VerificationLog> VerificationLogs => Set<VerificationLog>();
     public DbSet<DisbursalParticularType> DisbursalParticularTypes => Set<DisbursalParticularType>();
     public DbSet<LenderDisbursedToOption> LenderDisbursedToOptions => Set<LenderDisbursedToOption>();
     public DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses => Set<PostDisbursementDocumentStatus>();
-    public DbSet<LeadCustomer> LeadCustomers => Set<LeadCustomer>();
     public DbSet<CustomerVehicle> CustomerVehicles => Set<CustomerVehicle>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)

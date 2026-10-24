@@ -13,14 +13,11 @@ public interface ILoansDbContext
     DbSet<LoanTransaction> LoanTransactions { get; }
     DbSet<DisbursalLineItem> DisbursalLineItems { get; }
     DbSet<RcPipelineTracker> RcPipelineTrackers { get; }
-    DbSet<Lead> Leads { get; }
-    DbSet<LeadCheckLog> LeadCheckLogs { get; }
     DbSet<EntityComment> EntityComments { get; }
     DbSet<VerificationLog> VerificationLogs { get; }
     DbSet<DisbursalParticularType> DisbursalParticularTypes { get; }
     DbSet<LenderDisbursedToOption> LenderDisbursedToOptions { get; }
     DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses { get; }
-    DbSet<LeadCustomer> LeadCustomers { get; }
     DbSet<CustomerVehicle> CustomerVehicles { get; }
     Task<int> SaveChangesAsync(CancellationToken cancellationToken = default);
 }

@@ -19,7 +19,9 @@ public record ActionExecutionDto(
     int? ActionOrder,
     string Status,
     JsonElement? Response,
-    string? Error);
+    string? Error,
+    DateTime StartedAt,
+    DateTime? CompletedAt);
 
 // Runs the lead's product type actions in order. Every run is recorded, including failures.
 // Stops at the first failed run, so later actions do not run on a result that was not produced.
@@ -47,9 +49,13 @@ public class RunLeadActionsCommandHandler(ILeadsDbContext db, ITenantContext ten
             throw new BusinessRuleException(
                 $"These actions are not configured for '{lead.ProductTypeCode}': {string.Join(", ", unknown)}.");
 
+        if (requests.Count == 0)
+            throw new BusinessRuleException("Choose at least one action to run.");
+
         var results = new List<ActionExecutionDto>();
 
-        foreach (var definition in productType.Actions.OrderBy(a => a.Order))
+        // Only the actions named in the request run, in their configured order. Others are left alone.
+        foreach (var definition in productType.Actions.OrderBy(a => a.Order).Where(a => requests.ContainsKey(a.Code)))
         {
             requests.TryGetValue(definition.Code, out var payload);
 
@@ -95,7 +101,9 @@ public class RunLeadActionsCommandHandler(ILeadsDbContext db, ITenantContext ten
                 execution.ActionOrder,
                 execution.Status,
                 execution.ResponsePayload,
-                execution.ErrorMessage));
+                execution.ErrorMessage,
+                execution.StartedAt,
+                execution.CompletedAt));
 
             if (execution.Status == ActionStatuses.Failed)
                 break;

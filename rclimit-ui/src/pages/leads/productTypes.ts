@@ -42,12 +42,26 @@ export interface ActionRun {
   status: string;
   response: { outcome?: string; score?: number | null; remarks?: string | null } | null;
   error: string | null;
+  startedAt: string;
+  completedAt: string | null;
 }
 
 // Action codes the backend implements. Keep in step with ActionCodes in the Leads module.
 export const ACTION_LABELS: Record<string, string> = {
   CIBIL_CHECK: 'CIBIL check',
   VAHAN_CHECK: 'Vehicle check (Vahan)',
+};
+
+// Fields an automated check needs from the user. Prefilled from the lead where the lead has the value.
+export const AUTOMATED_FIELDS: Record<string, { key: string; label: string; required: boolean }[]> = {
+  CIBIL_CHECK: [
+    { key: 'pan', label: 'PAN', required: true },
+    { key: 'mobile', label: 'Mobile #', required: true },
+    { key: 'fullName', label: 'Full name', required: true },
+  ],
+  VAHAN_CHECK: [
+    { key: 'registration', label: 'Vehicle registration number', required: true },
+  ],
 };
 
 // Actions whose request takes a score. Other actions reject a score.

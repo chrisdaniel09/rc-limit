@@ -8,6 +8,7 @@ import CommentsPanel from '../../components/CommentsPanel';
 import {
   ACTION_LABELS,
   ACTION_TAKES_SCORE,
+  AUTOMATED_FIELDS,
   OUTCOME_OPTIONS,
   ROLE_OPTIONS,
   type ActionRun,
@@ -47,6 +48,14 @@ interface ActionForm {
   score: string;
   remarks: string;
 }
+
+type ActionMode = 'manual' | 'automated' | 'history';
+
+const ACTION_MODE_LABELS: Record<ActionMode, string> = {
+  manual: 'Manual',
+  automated: 'Automated',
+  history: 'History',
+};
 
 interface CustomerMatch {
   customerId: string;
@@ -185,10 +194,49 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
   );
 }
 
-function OutcomePill({ outcome }: { outcome: string | null }) {
-  const styles = TONE_CLASSES[outcome ? getCheckTone(outcome) : 'neutral'];
-  const label = OUTCOME_OPTIONS.find(o => o.value === outcome)?.label ?? 'Not run';
-  return <span className={`rounded-full border px-2.5 py-0.5 text-xs font-medium ${styles.card} ${styles.text}`}>{label}</span>;
+// An action tile. The "Choose an action" button sits over the label. The menu opens Manual, Automated or History for this action only.
+function ActionTile({ label, value, tone, onChoose }: {
+  label: string;
+  value: string;
+  tone: Tone;
+  onChoose: (mode: ActionMode) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const styles = TONE_CLASSES[tone];
+  return (
+    <div className={`relative rounded-xl border px-5 py-4 ${styles.card}`}>
+      <div className="flex items-start justify-between gap-2">
+        <p className="text-xs font-medium text-gray-600">{label}</p>
+        <button
+          type="button"
+          onClick={() => setOpen((o) => !o)}
+          className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+        >
+          Choose an action ▾
+        </button>
+      </div>
+      <div className="mt-2 flex items-center justify-between">
+        <p className={`text-base font-semibold ${styles.text}`}>{value.replace(/_/g, ' ')}</p>
+        <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${styles.icon}`}>
+          {styles.glyph}
+        </span>
+      </div>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+          {(["manual", "automated", "history"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => { setOpen(false); onChoose(mode); }}
+              className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+            >
+              {ACTION_MODE_LABELS[mode]}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function TextAreaField({ label, value, onChange, placeholder, disabled }: {
@@ -225,7 +273,9 @@ export default function LeadDetailPage() {
   const [loading, setLoading] = useState(false);
   const [assignedToUserId, setAssignedToUserId] = useState('');
   const [leadStatus, setLeadStatus] = useState('');
-  const [actionForms, setActionForms] = useState<Record<string, ActionForm>>({});
+  const [actionPanel, setActionPanel] = useState<{ mode: ActionMode; actionCode: string } | null>(null);
+  const [manualForm, setManualForm] = useState<ActionForm>({ outcome: '', score: '', remarks: '' });
+  const [automatedForm, setAutomatedForm] = useState<Record<string, string>>({});
   const [runningActions, setRunningActions] = useState(false);
   const [customerType, setCustomerType] = useState('DEALER');
   const [assignedCeiling, setAssignedCeiling] = useState('');
@@ -279,9 +329,6 @@ export default function LeadDetailPage() {
     setSyncedLead(lead);
     setAssignedToUserId(lead.assignedToUserId ?? '');
     setLeadStatus(lead.leadStatus);
-    setActionForms(Object.fromEntries(
-      lead.configuredActions.map((action) => [action.code, { outcome: '', score: '', remarks: '' }]),
-    ));
   }
 
   const canEdit = hasRight('leads.edit') && !lead?.isLocked;
@@ -396,35 +443,58 @@ export default function LeadDetailPage() {
     }
   };
 
-  // Sends every check the user filled in, in the product's order. The server stops at the first failed run.
-  const handleRunActions = async () => {
-    if (!canEdit) return;
+  const openActionPanel = (mode: ActionMode, actionCode: string) => {
+    setManualForm({ outcome: '', score: '', remarks: '' });
+    setAutomatedForm({
+      pan: '',
+      mobile: lead?.whatsappPhoneNumber ?? '',
+      fullName: lead?.applicantName ?? '',
+      registration: lead?.referenceNumber ?? '',
+    });
+    setActionPanel({ mode, actionCode });
+  };
 
-    const requests: Record<string, Record<string, unknown>> = {};
-    for (const action of lead!.configuredActions) {
-      const form = actionForms[action.code];
-      if (!form?.outcome) continue;
-
-      const request: Record<string, unknown> = { outcome: form.outcome };
-      if (ACTION_TAKES_SCORE[action.code] && form.score.trim()) request.score = parseInt(form.score);
-      if (form.remarks.trim()) request.remarks = form.remarks.trim();
-      requests[action.code] = request;
+  // The automated check is not connected yet. The form checks the required fields and says so, rather than sending anything.
+  const submitAutomatedCheck = () => {
+    if (!actionPanel) return;
+    const fields = AUTOMATED_FIELDS[actionPanel.actionCode] ?? [];
+    const missing = fields.filter((f) => f.required && !(automatedForm[f.key] ?? '').trim()).map((f) => f.label);
+    if (missing.length > 0) {
+      alert(`Fill in: ${missing.join(', ')}.`);
+      return;
     }
+    alert('Automated checks are not connected yet, so nothing was sent to the provider.');
+    setActionPanel(null);
+  };
 
-    if (Object.keys(requests).length === 0) {
-      alert('Choose an outcome for at least one check.');
+  // Records one manual outcome for the chosen action. The panel closes only when the run is recorded.
+  const submitManualAction = async () => {
+    if (!canEdit || !actionPanel) return;
+    const action = lead!.configuredActions.find((a) => a.code === actionPanel.actionCode);
+    if (!action) return;
+
+    if (!manualForm.outcome) {
+      alert('Choose an outcome.');
       return;
     }
 
+    const request: Record<string, unknown> = { outcome: manualForm.outcome };
+    if (ACTION_TAKES_SCORE[action.code] && manualForm.score.trim()) request.score = parseInt(manualForm.score);
+    if (manualForm.remarks.trim()) request.remarks = manualForm.remarks.trim();
+
     setRunningActions(true);
     try {
-      const response = await apiPost<{ data: ActionRun[] }>(`/api/v1/leads/${lead!.leadId}/actions`, requests);
+      const response = await apiPost<{ data: ActionRun[] }>(`/api/v1/leads/${lead!.leadId}/actions`, { [action.code]: request });
       const failed = response.data.find((run) => run.status === 'FAILED');
       refetch();
-      if (failed) alert(`${ACTION_LABELS[failed.actionCode] ?? failed.actionCode} was not recorded: ${failed.error ?? 'unknown error'}`);
+      if (failed) {
+        alert(`${ACTION_LABELS[failed.actionCode] ?? failed.actionCode} was not recorded: ${failed.error ?? 'unknown error'}`);
+      } else {
+        setActionPanel(null);
+      }
     } catch (err) {
-      console.error('Failed to run checks:', err);
-      alert(err instanceof Error && err.message ? err.message : 'Failed to run checks. Please try again.');
+      console.error('Failed to record check:', err);
+      alert(err instanceof Error && err.message ? err.message : 'Failed to record check. Please try again.');
     } finally {
       setRunningActions(false);
     }
@@ -501,34 +571,37 @@ export default function LeadDetailPage() {
             <p className="mt-1 text-xs text-gray-500">Lead ID: {lead.leadId}</p>
           </div>
 
-          {lead.convertedCustomerId ? (
-            <Link
-              to={`/customers/${lead.convertedCustomerId}`}
-              className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-100"
-            >
-              ✓ Converted to customer
-            </Link>
-          ) : (
-            hasRight('leads.edit') && (
-              <button
-                onClick={handleOpenConvertDialog}
-                className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+          <div className="flex items-center gap-3">
+            {lead.convertedCustomerId ? (
+              <Link
+                to={`/customers/${lead.convertedCustomerId}`}
+                className="inline-flex items-center gap-2 rounded-lg border border-green-200 bg-green-50 px-4 py-2.5 text-sm font-semibold text-green-700 hover:bg-green-100"
               >
-                Convert to customer →
-              </button>
-            )
-          )}
+                ✓ Converted to customer
+              </Link>
+            ) : (
+              hasRight('leads.edit') && (
+                <button
+                  onClick={handleOpenConvertDialog}
+                  className="inline-flex items-center gap-2 rounded-lg bg-indigo-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-indigo-700"
+                >
+                  Convert to customer →
+                </button>
+              )
+            )}
+          </div>
         </div>
 
         <div className="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
           {lead.configuredActions.map((action) => {
             const outcome = latestOutcome(action.code);
             return (
-              <StatusTile
+              <ActionTile
                 key={action.code}
                 label={ACTION_LABELS[action.code] ?? action.code}
                 value={outcome ?? 'Not run'}
                 tone={outcome ? getCheckTone(outcome) : 'neutral'}
+                onChoose={(mode) => openActionPanel(mode, action.code)}
               />
             );
           })}
@@ -560,7 +633,7 @@ export default function LeadDetailPage() {
             </button>
           </div>
 
-          <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <div className="max-w-3xl">
 
             {/* Left column: assignment, status, information */}
             <div className="space-y-6">
@@ -606,75 +679,6 @@ export default function LeadDetailPage() {
               </Card>
             </div>
 
-            {/* Right column: verifications */}
-            <div className="space-y-6">
-              <Card
-                title="Verifications"
-                action={
-                  canEdit && lead.configuredActions.length > 0 ? (
-                    <button
-                      type="button"
-                      onClick={handleRunActions}
-                      disabled={runningActions}
-                      className="rounded-md bg-indigo-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-                    >
-                      {runningActions ? 'Running…' : 'Record checks'}
-                    </button>
-                  ) : undefined
-                }
-              >
-                {lead.configuredActions.length === 0 && (
-                  <p className="text-sm text-gray-500">This financial requirement has no verification checks.</p>
-                )}
-                {lead.configuredActions.map((action) => {
-                  const form = actionForms[action.code] ?? { outcome: '', score: '', remarks: '' };
-                  const setForm = (patch: Partial<ActionForm>) =>
-                    setActionForms({ ...actionForms, [action.code]: { ...form, ...patch } });
-                  return (
-                    <div key={action.code} className="space-y-3 rounded-lg border border-gray-200 p-4">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-semibold text-gray-900">{ACTION_LABELS[action.code] ?? action.code}</p>
-                        <OutcomePill outcome={latestOutcome(action.code)} />
-                      </div>
-                      {canEdit && (
-                        <>
-                          <div className="grid grid-cols-2 gap-4">
-                            <FormField label="Outcome" value={form.outcome} onChange={(v) => setForm({ outcome: v })} options={OUTCOME_OPTIONS} />
-                            {ACTION_TAKES_SCORE[action.code] && (
-                              <FormField label="Score" type="number" value={form.score} onChange={(v) => setForm({ score: v })} placeholder="750" />
-                            )}
-                          </div>
-                          <TextAreaField label="Remarks" value={form.remarks} onChange={(v) => setForm({ remarks: v })} placeholder="Notes about this check" />
-                        </>
-                      )}
-                    </div>
-                  );
-                })}
-              </Card>
-
-              <Card title="Check history">
-                {lead.actionHistory.length === 0 && <p className="text-sm text-gray-500">No checks recorded yet.</p>}
-                <ul className="divide-y divide-gray-100">
-                  {lead.actionHistory.map((run) => (
-                    <li key={run.executionId} className="flex items-start justify-between gap-4 py-3 text-sm">
-                      <div className="min-w-0">
-                        <p className="font-medium text-gray-900">{ACTION_LABELS[run.actionCode] ?? run.actionCode}</p>
-                        {run.status === 'FAILED' ? (
-                          <p className="text-red-700">Not recorded: {run.error ?? 'unknown error'}</p>
-                        ) : (
-                          <p className="text-gray-600">
-                            {OUTCOME_OPTIONS.find(o => o.value === run.response?.outcome)?.label ?? run.response?.outcome}
-                            {run.response?.score != null && ` · score ${run.response.score}`}
-                            {run.response?.remarks && ` · ${run.response.remarks}`}
-                          </p>
-                        )}
-                      </div>
-                      <span className="shrink-0 text-xs text-gray-400">{run.status === 'FAILED' ? 'Failed' : 'Recorded'}</span>
-                    </li>
-                  ))}
-                </ul>
-              </Card>
-            </div>
           </div>
         </div>
       </div>
@@ -692,6 +696,129 @@ export default function LeadDetailPage() {
           </button>
         </div>
       )}
+
+      {/* Action modals: Manual (status and score), Automated (required fields), History (runs for one action) */}
+      {actionPanel && lead && (() => {
+        const action = lead.configuredActions.find((a) => a.code === actionPanel.actionCode);
+        if (!action) return null;
+        const label = ACTION_LABELS[action.code] ?? action.code;
+        const close = () => setActionPanel(null);
+        const runs = lead.actionHistory.filter((run) => run.actionCode === action.code);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+            <div className="flex max-h-[90vh] w-full max-w-md flex-col overflow-hidden rounded-lg bg-white shadow-xl">
+              <div className="flex items-center justify-between border-b border-gray-200 bg-gray-50 px-6 py-4">
+                <h2 className="text-lg font-semibold text-gray-900">{ACTION_MODE_LABELS[actionPanel.mode]} · {label}</h2>
+                <button onClick={close} className="text-2xl font-light text-gray-400 hover:text-gray-600">×</button>
+              </div>
+
+              <div className="space-y-4 overflow-y-auto px-6 py-5">
+                {actionPanel.mode === 'manual' && (
+                  <>
+                    {!canEdit && (
+                      <p className="text-sm text-amber-700">
+                        {lead.isLocked ? 'This lead is converted, so its checks are locked.' : 'You do not have permission to record checks.'}
+                      </p>
+                    )}
+                    <FormField
+                      label="Status"
+                      value={manualForm.outcome}
+                      onChange={(v) => setManualForm({ ...manualForm, outcome: v })}
+                      options={OUTCOME_OPTIONS}
+                      required
+                      disabled={!canEdit}
+                    />
+                    {ACTION_TAKES_SCORE[action.code] && (
+                      <FormField
+                        label="Score"
+                        type="number"
+                        value={manualForm.score}
+                        onChange={(v) => setManualForm({ ...manualForm, score: v })}
+                        placeholder="750"
+                        disabled={!canEdit}
+                      />
+                    )}
+                    <TextAreaField
+                      label="Remarks"
+                      value={manualForm.remarks}
+                      onChange={(v) => setManualForm({ ...manualForm, remarks: v })}
+                      placeholder="Notes about this check"
+                      disabled={!canEdit}
+                    />
+                  </>
+                )}
+
+                {actionPanel.mode === 'automated' && (
+                  <>
+                    <p className="text-sm text-gray-600">Fields required for the automated {label.toLowerCase()}:</p>
+                    {(AUTOMATED_FIELDS[action.code] ?? []).map((field) => (
+                      <FormField
+                        key={field.key}
+                        label={field.label}
+                        value={automatedForm[field.key] ?? ''}
+                        onChange={(v) => setAutomatedForm({ ...automatedForm, [field.key]: v })}
+                        required={field.required}
+                      />
+                    ))}
+                  </>
+                )}
+
+                {actionPanel.mode === 'history' && (
+                  runs.length === 0 ? (
+                    <p className="text-sm text-gray-500">No checks recorded for this action yet.</p>
+                  ) : (
+                    <ul className="divide-y divide-gray-100">
+                      {runs.map((run) => (
+                        <li key={run.executionId} className="py-3 text-sm">
+                          <p className="text-xs text-gray-500">
+                            {new Date(run.startedAt).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' })}
+                          </p>
+                          {run.status === 'FAILED' ? (
+                            <p className="text-red-700">Not recorded: {run.error ?? 'unknown error'}</p>
+                          ) : (
+                            <p className="text-gray-900">
+                              {OUTCOME_OPTIONS.find((o) => o.value === run.response?.outcome)?.label ?? run.response?.outcome}
+                              {run.response?.score != null && ` · score ${run.response.score}`}
+                              {run.response?.remarks && ` · ${run.response.remarks}`}
+                            </p>
+                          )}
+                        </li>
+                      ))}
+                    </ul>
+                  )
+                )}
+              </div>
+
+              <div className="flex justify-end gap-3 border-t border-gray-200 bg-gray-50 px-6 py-4">
+                {actionPanel.mode === 'history' ? (
+                  <button onClick={close} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Close</button>
+                ) : (
+                  <>
+                    <button onClick={close} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-100">Cancel</button>
+                    {actionPanel.mode === 'manual' ? (
+                      <button
+                        onClick={submitManualAction}
+                        disabled={!canEdit || runningActions}
+                        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
+                      >
+                        {runningActions ? 'Saving…' : 'Save'}
+                      </button>
+                    ) : (
+                      <button
+                        onClick={submitAutomatedCheck}
+                        className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                      >
+                        Submit
+                      </button>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* Comments Modal */}
       {showCommentsModal && (

@@ -154,7 +154,7 @@ public class GetLeadDetailQueryHandler : IRequestHandler<GetLeadDetailQuery, Lea
             .Where(a => a.LeadId == request.LeadId)
             .OrderByDescending(a => a.StartedAt)
             .Select(a => new ActionExecutionDto(
-                a.ExecutionId, a.ActionCode, a.ActionOrder, a.Status, a.ResponsePayload, a.ErrorMessage))
+                a.ExecutionId, a.ActionCode, a.ActionOrder, a.Status, a.ResponsePayload, a.ErrorMessage, a.StartedAt, a.CompletedAt))
             .ToListAsync(cancellationToken);
 
         return new LeadDetailDto(

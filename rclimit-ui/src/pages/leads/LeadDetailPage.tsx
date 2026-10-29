@@ -202,18 +202,30 @@ function ActionTile({ label, value, tone, onChoose }: {
   onChoose: (mode: ActionMode) => void;
 }) {
   const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
   const styles = TONE_CLASSES[tone];
+
+  // Close the menu on a press outside it.
+  useEffect(() => {
+    if (!open) return;
+    const handlePointerDown = (e: MouseEvent) => {
+      if (!menuRef.current?.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handlePointerDown);
+    return () => document.removeEventListener('mousedown', handlePointerDown);
+  }, [open]);
+
   return (
     <div className={`rounded-xl border px-5 py-4 ${styles.card}`}>
       <p className="text-xs font-medium text-gray-600">{label}</p>
       <div className="mt-2 flex items-center justify-between gap-3">
         <p className={`text-base font-semibold ${styles.text}`}>{value.replace(/_/g, ' ')}</p>
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <div className="relative" ref={menuRef}>
             <button
               type="button"
               onClick={() => setOpen((o) => !o)}
-              className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
+              className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50"
             >
               Choose an action ▾
             </button>

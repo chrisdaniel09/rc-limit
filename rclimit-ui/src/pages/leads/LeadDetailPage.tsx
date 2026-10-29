@@ -194,7 +194,7 @@ function StatusTile({ label, value, tone }: { label: string; value: string; tone
   );
 }
 
-// An action tile. The "Choose an action" button sits over the label. The menu opens Manual, Automated or History for this action only.
+// An action tile. The "Choose an action" button sits beside the status icon. The menu opens below it with Manual, Automated or History for this action only.
 function ActionTile({ label, value, tone, onChoose }: {
   label: string;
   value: string;
@@ -204,37 +204,39 @@ function ActionTile({ label, value, tone, onChoose }: {
   const [open, setOpen] = useState(false);
   const styles = TONE_CLASSES[tone];
   return (
-    <div className={`relative rounded-xl border px-5 py-4 ${styles.card}`}>
-      <div className="flex items-start justify-between gap-2">
-        <p className="text-xs font-medium text-gray-600">{label}</p>
-        <button
-          type="button"
-          onClick={() => setOpen((o) => !o)}
-          className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
-        >
-          Choose an action ▾
-        </button>
-      </div>
-      <div className="mt-2 flex items-center justify-between">
+    <div className={`rounded-xl border px-5 py-4 ${styles.card}`}>
+      <p className="text-xs font-medium text-gray-600">{label}</p>
+      <div className="mt-2 flex items-center justify-between gap-3">
         <p className={`text-base font-semibold ${styles.text}`}>{value.replace(/_/g, ' ')}</p>
-        <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${styles.icon}`}>
-          {styles.glyph}
-        </span>
-      </div>
-      {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
-          {(["manual", "automated", "history"] as const).map((mode) => (
+        <div className="flex items-center gap-3">
+          <div className="relative">
             <button
-              key={mode}
               type="button"
-              onClick={() => { setOpen(false); onChoose(mode); }}
-              className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+              onClick={() => setOpen((o) => !o)}
+              className="rounded-md border border-gray-300 bg-white px-2 py-0.5 text-xs font-medium text-gray-700 shadow-sm hover:bg-gray-50"
             >
-              {ACTION_MODE_LABELS[mode]}
+              Choose an action ▾
             </button>
-          ))}
+            {open && (
+              <div className="absolute right-0 top-full z-20 mt-1 w-36 rounded-lg border border-gray-200 bg-white py-1 shadow-lg">
+                {(["manual", "automated", "history"] as const).map((mode) => (
+                  <button
+                    key={mode}
+                    type="button"
+                    onClick={() => { setOpen(false); onChoose(mode); }}
+                    className="block w-full px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100"
+                  >
+                    {ACTION_MODE_LABELS[mode]}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+          <span className={`flex h-9 w-9 items-center justify-center rounded-full text-sm font-bold text-white ${styles.icon}`}>
+            {styles.glyph}
+          </span>
         </div>
-      )}
+      </div>
     </div>
   );
 }

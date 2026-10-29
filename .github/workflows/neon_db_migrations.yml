@@ -3,7 +3,7 @@
 # so each migration runs once; seeds are idempotent and run every time.
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
-#   NEON_DB_HOST      e.g. ep-xxxx-xxxx.ap-southeast-1.aws.neon.tech (direct host, not the -pooler one)
+#   NEON_DB_HOST      e.g. ep-xxxx-xxxx.ap-southeast-1.aws.neon.tech (pooler or direct host; "-pooler" is removed)
 #   NEON_DB_NAME      e.g. rclimit
 #   NEON_DB_USER      e.g. neondb_owner
 #   NEON_DB_PASSWORD
@@ -52,8 +52,11 @@ jobs:
           PGSSLMODE: require
           PGCONNECT_TIMEOUT: '30'
         run: |
+          # Migrations need a direct connection, not the PgBouncer pooler (transaction mode, and it
+          # rejects the "options" startup parameter the runner sends). Neon's direct host is the
+          # pooler host without "-pooler", so either can be stored in the secret.
           $params = @{
-            DbHost   = '${{ secrets.NEON_DB_HOST }}'
+            DbHost   = '${{ secrets.NEON_DB_HOST }}' -replace '-pooler\.', '.'
             Database = '${{ secrets.NEON_DB_NAME }}'
             User     = '${{ secrets.NEON_DB_USER }}'
           }

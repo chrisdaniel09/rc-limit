@@ -23,7 +23,6 @@ public class LeadConfiguration : IEntityTypeConfiguration<Lead>
         builder.Property(e => e.VahanValidationStatus).HasColumnName("vahan_validation_status").HasMaxLength(30);
         builder.Property(e => e.CibilScorePreview).HasColumnName("cibil_score_preview");
         builder.Property(e => e.ProductTypeCode).HasColumnName("product_type_code").HasMaxLength(30);
-        builder.Property(e => e.RequestedAmount).HasColumnName("requested_amount");
         builder.Property(e => e.ProductDetails).HasJsonColumn("product_details");
         builder.Property(e => e.ReferenceNumber).HasColumnName("reference_number").HasMaxLength(30);
         builder.Property(e => e.LeadStatus).HasColumnName("lead_status").HasMaxLength(30);

@@ -91,7 +91,6 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, PagedResult<L
             l.ConvertedCustomerId,
             l.CreatedAt,
             l.ProductTypeCode,
-            l.RequestedAmount,
             l.ReferenceNumber)).ToList();
 
         return new PagedResult<LeadDto>(items, paging.NormalizedPage, paging.NormalizedPageSize, total);

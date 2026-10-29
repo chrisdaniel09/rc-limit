@@ -58,7 +58,6 @@ public class LeadsPersistenceRoundTripTests
                 TenantId = tenantId,
                 WhatsappPhoneNumber = "9999999999",
                 ProductTypeCode = "USED_CV",
-                RequestedAmount = 500000m,
                 ReferenceNumber = "GJ05BX6637",
                 ProductDetails = new Dictionary<string, JsonElement>
                 {
@@ -98,7 +97,6 @@ public class LeadsPersistenceRoundTripTests
 
             var lead = await read.Leads.AsNoTracking().SingleAsync(l => l.LeadId == leadId);
             Assert.Equal("USED_CV", lead.ProductTypeCode);
-            Assert.Equal(500000m, lead.RequestedAmount);
             Assert.Equal("GJ05BX6637", lead.ReferenceNumber);
             Assert.Equal("DIESEL", lead.ProductDetails["fuel_type"].GetString());
 

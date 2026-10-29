@@ -20,7 +20,6 @@ interface Lead {
   whatsappPhoneNumber: string;
   contactPhone: string | null;
   productTypeCode: string;
-  requestedAmount: number | null;
   referenceNumber: string | null;
   leadSource: string;
   referredByUserId: string | null;
@@ -64,7 +63,6 @@ const emptyForm = {
   whatsappPhoneNumber: '',
   contactPhone: '',
   productTypeCode: '',
-  requestedAmount: '',
   notes: '',
 };
 
@@ -122,7 +120,6 @@ export default function LeadsPage() {
         whatsappPhoneNumber: toPhoneNumber(form.whatsappPhoneNumber),
         contactPhone: toPhoneNumber(form.contactPhone),
         productTypeCode: form.productTypeCode,
-        requestedAmount: form.requestedAmount ? parseFloat(form.requestedAmount) : null,
         productDetails: toProductDetails(selectedProduct?.fieldSchema ?? [], productDetails),
         notes: form.notes || null,
       });
@@ -228,8 +225,6 @@ export default function LeadsPage() {
             <PhoneInput label="WhatsApp Phone" value={form.whatsappPhoneNumber} onChange={(v) => setForm({ ...form, whatsappPhoneNumber: v })} required />
             <PhoneInput label="Contact Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
           </div>
-          <FormField label="Requested Amount (₹)" type="number" value={form.requestedAmount} onChange={(v) => setForm({ ...form, requestedAmount: v })} />
-
           {selectedProduct && selectedProduct.fieldSchema.length > 0 && (
             <div className="mb-2 rounded-md border border-gray-200 bg-gray-50 px-4 pt-3 pb-1">
               <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">{selectedProduct.label} details</p>

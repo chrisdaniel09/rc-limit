@@ -18,7 +18,6 @@ public class Lead
     public int? CibilScorePreview { get; set; }
     // Matches the column default until the create flow sends the product type itself.
     public string ProductTypeCode { get; set; } = "USED_CV";
-    public decimal? RequestedAmount { get; set; }
     public Dictionary<string, JsonElement> ProductDetails { get; set; } = new();
     public string? ReferenceNumber { get; set; }
     public string LeadStatus { get; set; } = "NEW";

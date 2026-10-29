@@ -21,5 +21,4 @@ public record LeadDto(
     Guid? ConvertedCustomerId,
     DateTime CreatedAt,
     string ProductTypeCode,
-    decimal? RequestedAmount,
     string? ReferenceNumber);

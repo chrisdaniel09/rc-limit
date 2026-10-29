@@ -35,7 +35,6 @@ interface Lead {
   isLocked: boolean;
   createdAt: string;
   productTypeCode: string;
-  requestedAmount: number | null;
   referenceNumber: string | null;
   productDetails: Record<string, string | number | null>;
   fieldSchema: ProductField[];
@@ -681,10 +680,6 @@ export default function LeadDetailPage() {
                 <InfoItem label="Financial requirement" value={requirementLabel} />
                 <InfoItem label="Source" value={sourceLabel} />
                 <InfoItem label="Phone" value={lead.whatsappPhoneNumber} />
-                <InfoItem
-                  label="Requested amount"
-                  value={lead.requestedAmount ? `₹${lead.requestedAmount.toLocaleString('en-IN')}` : '-'}
-                />
                 <InfoItem label="Reference" value={lead.referenceNumber ?? '-'} />
                 {lead.fieldSchema.map((field) => (
                   <InfoItem key={field.key} label={field.label} value={formatDetail(lead.productDetails[field.key])} />

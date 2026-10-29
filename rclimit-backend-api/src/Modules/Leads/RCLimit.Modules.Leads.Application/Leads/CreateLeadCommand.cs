@@ -23,7 +23,6 @@ public record CreateLeadCommand(
     Guid? PartnerId,
     string? Notes,
     string? ProductTypeCode = null,
-    decimal? RequestedAmount = null,
     Dictionary<string, JsonElement>? ProductDetails = null) : IRequest<Guid>;
 
 public class CreateLeadCommandHandler : IRequestHandler<CreateLeadCommand, Guid>
@@ -64,8 +63,7 @@ public class CreateLeadCommandHandler : IRequestHandler<CreateLeadCommand, Guid>
             ContactPhone = contactPhone,
             ApplicantName = request.ApplicantName,
             ProductTypeCode = productTypeCode,
-            RequestedAmount = request.RequestedAmount ?? request.RequestedLoanAmount,
-            RequestedLoanAmount = request.RequestedAmount ?? request.RequestedLoanAmount,
+            RequestedLoanAmount = request.RequestedLoanAmount,
             ProductDetails = normalizedDetails,
             ReferenceNumber = referenceNumber,
             // Kept filled for the existing screens until they read product details.

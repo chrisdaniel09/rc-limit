@@ -1,6 +1,6 @@
--- 005: Partners module. Sub-brokers and DSA agents who refer business.
+-- 005: Partners module. Sub-brokers and DSA agents who refer business. Lives in the partners schema.
 
-CREATE TABLE public.partners (
+CREATE TABLE partners.partners (
     partner_id                   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id                    UUID         NOT NULL,
     user_id                      UUID,
@@ -14,4 +14,4 @@ CREATE TABLE public.partners (
     updated_at                   TIMESTAMPTZ
 );
 
-CREATE INDEX idx_partners_tenant_legal_name ON public.partners(tenant_id, legal_name, partner_id);
+CREATE INDEX idx_partners_tenant_legal_name ON partners.partners(tenant_id, legal_name, partner_id);

@@ -1,7 +1,7 @@
 -- 007: Loans module, customers and vehicles. Customers with their sub-limits, vehicles with their ownership
 -- history, verification logs, and comments on customers and loans.
 
-CREATE TABLE public.customers (
+CREATE TABLE loans.customers (
     customer_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id    UUID         NOT NULL,
     user_id      UUID,
@@ -20,13 +20,13 @@ CREATE TABLE public.customers (
     updated_at   TIMESTAMPTZ
 );
 
-CREATE INDEX idx_customers_tenant_legal_name ON public.customers(tenant_id, legal_name, customer_id);
-CREATE INDEX idx_customers_type ON public.customers(tenant_id, customer_type);
+CREATE INDEX idx_customers_tenant_legal_name ON loans.customers(tenant_id, legal_name, customer_id);
+CREATE INDEX idx_customers_type ON loans.customers(tenant_id, customer_type);
 
 -- The customer's revolving limit. Utilization moves at disbursal and closure.
-CREATE TABLE public.customer_sub_limits (
+CREATE TABLE loans.customer_sub_limits (
     sub_limit_id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    customer_id            UUID          NOT NULL REFERENCES public.customers(customer_id) ON DELETE CASCADE,
+    customer_id            UUID          NOT NULL REFERENCES loans.customers(customer_id) ON DELETE CASCADE,
     assigned_ceiling       NUMERIC(15,2) NOT NULL,
     current_utilization    NUMERIC(15,2) NOT NULL DEFAULT 0.00,
     pending_rc_count       INT           NOT NULL DEFAULT 0,
@@ -36,9 +36,9 @@ CREATE TABLE public.customer_sub_limits (
     updated_at             TIMESTAMPTZ
 );
 
-CREATE INDEX idx_sub_limits_customer ON public.customer_sub_limits(customer_id);
+CREATE INDEX idx_sub_limits_customer ON loans.customer_sub_limits(customer_id);
 
-CREATE TABLE public.vehicles (
+CREATE TABLE loans.vehicles (
     vehicle_id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id           UUID        NOT NULL,
     registration_number VARCHAR(20) NOT NULL,
@@ -50,34 +50,34 @@ CREATE TABLE public.vehicles (
     year_of_mfg         INT,
     ownership_count     INT         NOT NULL DEFAULT 1,
     current_rto_status  VARCHAR(30) NOT NULL DEFAULT 'CLEAN',
-    owner_customer_id   UUID REFERENCES public.customers(customer_id),
+    owner_customer_id   UUID REFERENCES loans.customers(customer_id),
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at          TIMESTAMPTZ
 );
 
-CREATE INDEX idx_vehicles_tenant ON public.vehicles(tenant_id);
-CREATE INDEX idx_vehicles_reg ON public.vehicles(registration_number);
-CREATE INDEX idx_vehicles_owner ON public.vehicles(owner_customer_id);
+CREATE INDEX idx_vehicles_tenant ON loans.vehicles(tenant_id);
+CREATE INDEX idx_vehicles_reg ON loans.vehicles(registration_number);
+CREATE INDEX idx_vehicles_owner ON loans.vehicles(owner_customer_id);
 
 -- Ownership history. At most one open row (owned_to IS NULL) per vehicle.
 -- source_lead_id is a plain id: leads belong to the Leads module.
-CREATE TABLE public.customer_vehicles (
+CREATE TABLE loans.customer_vehicles (
     customer_vehicle_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id           UUID        NOT NULL,
-    customer_id         UUID        NOT NULL REFERENCES public.customers(customer_id),
-    vehicle_id          UUID        NOT NULL REFERENCES public.vehicles(vehicle_id),
+    customer_id         UUID        NOT NULL REFERENCES loans.customers(customer_id),
+    vehicle_id          UUID        NOT NULL REFERENCES loans.vehicles(vehicle_id),
     source_lead_id      UUID,
     owned_from          TIMESTAMPTZ NOT NULL DEFAULT now(),
     owned_to            TIMESTAMPTZ,
     end_reason          VARCHAR(50)
 );
 
-CREATE INDEX idx_customer_vehicles_tenant ON public.customer_vehicles(tenant_id);
-CREATE INDEX idx_customer_vehicles_customer ON public.customer_vehicles(customer_id);
-CREATE INDEX idx_customer_vehicles_vehicle ON public.customer_vehicles(vehicle_id);
-CREATE UNIQUE INDEX uk_customer_vehicles_open ON public.customer_vehicles(vehicle_id) WHERE owned_to IS NULL;
+CREATE INDEX idx_customer_vehicles_tenant ON loans.customer_vehicles(tenant_id);
+CREATE INDEX idx_customer_vehicles_customer ON loans.customer_vehicles(customer_id);
+CREATE INDEX idx_customer_vehicles_vehicle ON loans.customer_vehicles(vehicle_id);
+CREATE UNIQUE INDEX uk_customer_vehicles_open ON loans.customer_vehicles(vehicle_id) WHERE owned_to IS NULL;
 
-CREATE TABLE public.verification_logs (
+CREATE TABLE loans.verification_logs (
     verification_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id         UUID        NOT NULL,
     vehicle_id        UUID,
@@ -89,12 +89,12 @@ CREATE TABLE public.verification_logs (
     executed_at       TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_verification_tenant ON public.verification_logs(tenant_id);
-CREATE INDEX idx_verification_vehicle ON public.verification_logs(vehicle_id);
-CREATE INDEX idx_verification_customer ON public.verification_logs(customer_id);
+CREATE INDEX idx_verification_tenant ON loans.verification_logs(tenant_id);
+CREATE INDEX idx_verification_vehicle ON loans.verification_logs(vehicle_id);
+CREATE INDEX idx_verification_customer ON loans.verification_logs(customer_id);
 
 -- Comments on customers and loans. Lead comments live in leads.lead_comments.
-CREATE TABLE public.entity_comments (
+CREATE TABLE loans.entity_comments (
     comment_id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id          UUID        NOT NULL,
     entity_type        VARCHAR(30) NOT NULL CONSTRAINT entity_type_check CHECK (entity_type IN ('CUSTOMER', 'LOAN')),
@@ -104,4 +104,4 @@ CREATE TABLE public.entity_comments (
     created_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX idx_entity_comments_entity ON public.entity_comments(tenant_id, entity_type, entity_id, created_at DESC);
+CREATE INDEX idx_entity_comments_entity ON loans.entity_comments(tenant_id, entity_type, entity_id, created_at DESC);

@@ -7,7 +7,7 @@
 -- lender's Excel dropdown (docs/RC_Limit_System_Specification.md). Do not correct them.
 
 -- 1. Application number sequence
-INSERT INTO public.application_number_sequences (tenant_id)
+INSERT INTO loans.application_number_sequences (tenant_id)
 SELECT tenant_id FROM system.tenants
 ON CONFLICT (tenant_id) DO NOTHING;
 
@@ -31,7 +31,7 @@ CROSS JOIN (VALUES
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 -- 3. Ledger counterparties: the recipient of a credit, or the payee of a debit
-INSERT INTO public.lender_disbursed_to_options (tenant_id, code, label, sort_order)
+INSERT INTO loans.lender_disbursed_to_options (tenant_id, code, label, sort_order)
 SELECT t.tenant_id, d.code, d.label, d.sort_order
 FROM system.tenants t
 CROSS JOIN (VALUES
@@ -41,7 +41,7 @@ CROSS JOIN (VALUES
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 -- 4. Particular types for ledger debits
-INSERT INTO public.disbursal_particular_types (tenant_id, code, label, sort_order)
+INSERT INTO loans.disbursal_particular_types (tenant_id, code, label, sort_order)
 SELECT t.tenant_id, d.code, d.label, d.sort_order
 FROM system.tenants t
 CROSS JOIN (VALUES
@@ -57,7 +57,7 @@ CROSS JOIN (VALUES
 ON CONFLICT (tenant_id, code) DO NOTHING;
 
 -- 5. Post-disbursement document statuses
-INSERT INTO public.post_disbursement_document_statuses (tenant_id, code, label, sort_order)
+INSERT INTO loans.post_disbursement_document_statuses (tenant_id, code, label, sort_order)
 SELECT t.tenant_id, d.code, d.label, d.sort_order
 FROM system.tenants t
 CROSS JOIN (VALUES

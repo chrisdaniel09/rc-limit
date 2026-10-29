@@ -16,7 +16,7 @@ PostgreSQL 13 or later (developed on 18). The schema follows the module boundari
 
 | File | Module | Contents |
 |---|---|---|
-| `001_schemas.sql` | all | `system`, `auth`, `accounting`, `leads` schemas |
+| `001_schemas.sql` | all | `system`, `auth`, `accounting`, `loans`, `leads`, `partners` schemas |
 | `002_system.sql` | System | tenants, tenant settings (session policy) |
 | `003_auth.sql` | Identity | users, identities, refresh tokens (session families), roles, rights |
 | `004_accounting.sql` | Accounting | ledger accounts, journal entries and lines, posting rules |
@@ -27,8 +27,8 @@ PostgreSQL 13 or later (developed on 18). The schema follows the module boundari
 | `009_leads.sql` | Leads | product types, leads, action runs, check logs, lead-customer links, comments |
 | `010_app_role_grants.sql` | all | grants to `app_user`, only if that role exists |
 
-Loans and Partners tables are still in `public`; moving them to their own schemas is planned
-(`docs/loan_lifecycle_file_revamp_specification.md` sections 11-13).
+Loans tables are in the `loans` schema, as `docs/loan_lifecycle_file_revamp_specification.md` section 11 requires.
+Partners tables are in the `partners` schema. `public` holds only the migration history (`public.schema_migrations`).
 
 ### Seeds
 
@@ -62,7 +62,7 @@ To delete everything without rebuilding:
 psql -h localhost -U postgres -d rclimit -f scripts\drop_all.sql
 ```
 
-`drop_all.sql` removes the `system`, `auth`, `accounting` and `leads` schemas and recreates `public` empty,
+`drop_all.sql` removes the `system`, `auth`, `accounting`, `loans`, `leads` and `partners` schemas and recreates `public` empty,
 which also clears the migration history. It keeps the database itself.
 
 ## Changing the schema
@@ -97,7 +97,7 @@ old chain:
 | Old migration 019 failed on a fresh database (grant to a missing `app_user` role), and 021 failed (`tenants` without its schema), so `post_disbursement_document_statuses` was never created and seed 001 stopped half way | Fixed; the grants are conditional (010) and the table is in 006 |
 | `created_at` on rights, roles, counterparties and document statuses is `timestamptz` (was `timestamp`) | EF writes UTC `DateTime`, which Npgsql refuses to store in `timestamp` columns, so creating those rows through the API failed |
 | About 60 columns with defaults are `NOT NULL` | EF treats them as required |
-| Foreign keys to other modules removed: tenant and user references from `auth`, `public.entity_comments`, `public.customer_vehicles`, document statuses; `loan_transactions.partner_id` | Module boundary rule: no foreign keys between modules |
+| Foreign keys to other modules removed: tenant and user references from `auth`, `loans.entity_comments`, `loans.customer_vehicles`, document statuses; `loan_transactions.partner_id` | Module boundary rule: no foreign keys between modules |
 | Check constraints added for `loan_status`, `product_type`, loan amounts, and a non-negative running balance | Enforce the loan state machine and ledger rules in the database too |
 | 18 redundant indexes removed (each duplicated a unique constraint or a longer index) | No query benefit; slower writes |
 | `auth.refresh_tokens.device_info` removed | Not mapped or used |

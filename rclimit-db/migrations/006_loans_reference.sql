@@ -2,7 +2,7 @@
 -- particular types (ledger debits), counterparties (credit recipients and debit payees) and post-disbursement
 -- document statuses.
 
-CREATE TABLE public.lenders (
+CREATE TABLE loans.lenders (
     lender_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id                 UUID         NOT NULL,
     name                      VARCHAR(100) NOT NULL,
@@ -16,12 +16,12 @@ CREATE TABLE public.lenders (
     updated_at                TIMESTAMPTZ
 );
 
-CREATE UNIQUE INDEX idx_lenders_tenant_code ON public.lenders(tenant_id, code);
+CREATE UNIQUE INDEX idx_lenders_tenant_code ON loans.lenders(tenant_id, code);
 
-CREATE TABLE public.master_bank_pools (
+CREATE TABLE loans.master_bank_pools (
     pool_id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id               UUID          NOT NULL,
-    lender_id               UUID          NOT NULL REFERENCES public.lenders(lender_id),
+    lender_id               UUID          NOT NULL REFERENCES loans.lenders(lender_id),
     facility_account_number VARCHAR(50)   NOT NULL,
     sanctioned_limit        NUMERIC(15,2) NOT NULL,
     utilized_amount         NUMERIC(15,2) NOT NULL DEFAULT 0.00,
@@ -32,10 +32,10 @@ CREATE TABLE public.master_bank_pools (
     updated_at              TIMESTAMPTZ
 );
 
-CREATE INDEX idx_bank_pools_tenant ON public.master_bank_pools(tenant_id);
-CREATE INDEX idx_bank_pools_lender ON public.master_bank_pools(lender_id);
+CREATE INDEX idx_bank_pools_tenant ON loans.master_bank_pools(tenant_id);
+CREATE INDEX idx_bank_pools_lender ON loans.master_bank_pools(lender_id);
 
-CREATE TABLE public.disbursal_particular_types (
+CREATE TABLE loans.disbursal_particular_types (
     particular_type_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id          UUID         NOT NULL,
     code               VARCHAR(50)  NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE public.disbursal_particular_types (
 );
 
 -- Counterparties of ledger entries. The table keeps its original name.
-CREATE TABLE public.lender_disbursed_to_options (
+CREATE TABLE loans.lender_disbursed_to_options (
     option_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id  UUID         NOT NULL,
     code       VARCHAR(50)  NOT NULL,
@@ -57,9 +57,9 @@ CREATE TABLE public.lender_disbursed_to_options (
     created_at TIMESTAMPTZ  NOT NULL DEFAULT now()
 );
 
-CREATE UNIQUE INDEX ix_lender_disbursed_to_options_tenant_code ON public.lender_disbursed_to_options(tenant_id, code);
+CREATE UNIQUE INDEX ix_lender_disbursed_to_options_tenant_code ON loans.lender_disbursed_to_options(tenant_id, code);
 
-CREATE TABLE public.post_disbursement_document_statuses (
+CREATE TABLE loans.post_disbursement_document_statuses (
     document_status_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     tenant_id          UUID         NOT NULL,
     code               VARCHAR(100) NOT NULL,
@@ -70,4 +70,4 @@ CREATE TABLE public.post_disbursement_document_statuses (
     CONSTRAINT uk_document_status_code UNIQUE (tenant_id, code)
 );
 
-CREATE INDEX idx_document_status_active ON public.post_disbursement_document_statuses(tenant_id, is_active);
+CREATE INDEX idx_document_status_active ON loans.post_disbursement_document_statuses(tenant_id, is_active);

@@ -6,6 +6,9 @@ namespace RCLimit.Modules.Loans.Infrastructure.Persistence;
 
 public class LoansDbContext : DbContext, ILoansDbContext
 {
+    // Every Loans table lives in this schema (spec section 11.3, rule 1).
+    public const string Schema = "loans";
+
     public LoansDbContext(DbContextOptions<LoansDbContext> options) : base(options) { }
 
     public DbSet<Lender> Lenders => Set<Lender>();
@@ -22,9 +25,12 @@ public class LoansDbContext : DbContext, ILoansDbContext
     public DbSet<LenderDisbursedToOption> LenderDisbursedToOptions => Set<LenderDisbursedToOption>();
     public DbSet<PostDisbursementDocumentStatus> PostDisbursementDocumentStatuses => Set<PostDisbursementDocumentStatus>();
     public DbSet<CustomerVehicle> CustomerVehicles => Set<CustomerVehicle>();
+    public DbSet<ApplicationNumberSequence> ApplicationNumberSequences => Set<ApplicationNumberSequence>();
+    public DbSet<LoanOutboxMessage> OutboxMessages => Set<LoanOutboxMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.HasDefaultSchema(Schema);
         modelBuilder.ApplyConfigurationsFromAssembly(typeof(LoansDbContext).Assembly);
     }
 }

@@ -24,7 +24,7 @@ public class LoansModuleApi : ILoansModuleApi
                 l.LoanId,
                 l.Customer.LegalName,
                 l.Vehicle.RegistrationNumber,
-                l.SanctionedAmount,
+                l.SanctionedAmount ?? 0m,
                 l.LoanStatus))
             .FirstOrDefaultAsync();
     }

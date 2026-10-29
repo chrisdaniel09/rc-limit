@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.Modules.Loans.Application.Abstractions;
+using RCLimit.Modules.Loans.Domain.Rules;
 
 namespace RCLimit.Modules.Loans.Application.Dashboard;
 
@@ -33,11 +34,11 @@ public class GetDashboardSummaryQueryHandler : IRequestHandler<GetDashboardSumma
             .CountAsync(l => l.TenantId == tenantId, cancellationToken);
 
         var activeLoans = await _db.LoanTransactions
-            .CountAsync(l => l.TenantId == tenantId && l.LoanStatus == "DISBURSED_RC_PENDING", cancellationToken);
+            .CountAsync(l => l.TenantId == tenantId && l.LoanStatus == LoanStatuses.Disbursed, cancellationToken);
 
         var totalSanctioned = await _db.LoanTransactions
             .Where(l => l.TenantId == tenantId)
-            .SumAsync(l => l.SanctionedAmount, cancellationToken);
+            .SumAsync(l => l.SanctionedAmount ?? 0m, cancellationToken);
 
         var pendingRcCount = await _db.RcPipelineTrackers
             .CountAsync(t => t.LoanTransaction.TenantId == tenantId

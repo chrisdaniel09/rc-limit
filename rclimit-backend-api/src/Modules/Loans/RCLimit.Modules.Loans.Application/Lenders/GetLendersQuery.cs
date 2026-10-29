@@ -28,6 +28,7 @@ public class GetLendersQueryHandler : IRequestHandler<GetLendersQuery, List<Lend
                 l.Code,
                 l.BaseInterestRate,
                 l.DefaultTenureLimitDays,
+                l.PddSlaDays,
                 l.Status))
             .ToListAsync(cancellationToken);
     }

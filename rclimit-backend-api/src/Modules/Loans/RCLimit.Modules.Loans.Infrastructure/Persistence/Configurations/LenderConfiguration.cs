@@ -8,7 +8,7 @@ public class LenderConfiguration : IEntityTypeConfiguration<Lender>
 {
     public void Configure(EntityTypeBuilder<Lender> builder)
     {
-        builder.ToTable("lenders");
+        builder.ToTable("lenders", LoansDbContext.Schema);
         builder.HasKey(e => e.LenderId);
         builder.Property(e => e.LenderId).HasColumnName("lender_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");
@@ -16,6 +16,7 @@ public class LenderConfiguration : IEntityTypeConfiguration<Lender>
         builder.Property(e => e.Code).HasColumnName("code").HasMaxLength(20);
         builder.Property(e => e.BaseInterestRate).HasColumnName("base_interest_rate");
         builder.Property(e => e.DefaultTenureLimitDays).HasColumnName("default_tenure_limit_days");
+        builder.Property(e => e.PddSlaDays).HasColumnName("pdd_sla_days");
         builder.Property(e => e.ContactPersonDetails).HasColumnName("contact_person_details").HasColumnType("jsonb");
         builder.Property(e => e.Status).HasColumnName("status").HasMaxLength(20);
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");

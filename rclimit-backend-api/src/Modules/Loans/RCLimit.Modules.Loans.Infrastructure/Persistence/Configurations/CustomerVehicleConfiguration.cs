@@ -8,7 +8,7 @@ public class CustomerVehicleConfiguration : IEntityTypeConfiguration<CustomerVeh
 {
     public void Configure(EntityTypeBuilder<CustomerVehicle> builder)
     {
-        builder.ToTable("customer_vehicles");
+        builder.ToTable("customer_vehicles", LoansDbContext.Schema);
 
         builder.HasKey(x => x.CustomerVehicleId);
 

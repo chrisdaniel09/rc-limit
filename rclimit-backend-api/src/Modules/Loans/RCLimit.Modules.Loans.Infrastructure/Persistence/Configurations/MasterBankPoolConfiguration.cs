@@ -8,7 +8,7 @@ public class MasterBankPoolConfiguration : IEntityTypeConfiguration<MasterBankPo
 {
     public void Configure(EntityTypeBuilder<MasterBankPool> builder)
     {
-        builder.ToTable("master_bank_pools");
+        builder.ToTable("master_bank_pools", LoansDbContext.Schema);
         builder.HasKey(e => e.PoolId);
         builder.Property(e => e.PoolId).HasColumnName("pool_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

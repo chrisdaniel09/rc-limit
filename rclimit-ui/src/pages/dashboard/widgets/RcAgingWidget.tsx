@@ -5,7 +5,7 @@ import WidgetCard from './WidgetCard';
 
 interface RcAgingAlert {
   loanId: string;
-  loanNumber: string | null;
+  applicationNumber: string;
   customerName: string;
   vehicleRegNo: string;
   agingDays: number;
@@ -35,7 +35,7 @@ export default function RcAgingWidget() {
             <tbody className="divide-y divide-gray-200">
               {alerts.map((alert) => (
                 <tr key={alert.loanId} className="hover:bg-gray-50">
-                  <td className="px-4 py-3 text-sm text-gray-700">{alert.loanNumber}</td>
+                  <td className="px-4 py-3 text-sm text-gray-700">{alert.applicationNumber}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{alert.customerName}</td>
                   <td className="px-4 py-3 text-sm text-gray-700">{alert.vehicleRegNo}</td>
                   <td className="px-4 py-3 text-sm font-medium text-gray-900">{alert.agingDays}</td>

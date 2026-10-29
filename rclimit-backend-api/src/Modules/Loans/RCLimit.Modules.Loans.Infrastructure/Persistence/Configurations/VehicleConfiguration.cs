@@ -8,7 +8,7 @@ public class VehicleConfiguration : IEntityTypeConfiguration<Vehicle>
 {
     public void Configure(EntityTypeBuilder<Vehicle> builder)
     {
-        builder.ToTable("vehicles");
+        builder.ToTable("vehicles", LoansDbContext.Schema);
         builder.HasKey(e => e.VehicleId);
         builder.Property(e => e.VehicleId).HasColumnName("vehicle_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

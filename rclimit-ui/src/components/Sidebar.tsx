@@ -5,6 +5,7 @@ const navItems = [
   { to: '/', label: 'Dashboard', icon: '▦' },
   { to: '/customers', label: 'Customers', icon: '👥' },
   { to: '/loans', label: 'Loans', icon: '📄' },
+  { to: '/rc-limit-ledger', label: 'RC Limit Ledger', icon: '📒' },
   { to: '/partners', label: 'Partners', icon: '🤝' },
   { to: '/leads', label: 'Leads', icon: '📋' },
 ];

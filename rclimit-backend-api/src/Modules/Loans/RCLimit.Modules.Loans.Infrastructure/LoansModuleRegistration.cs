@@ -25,6 +25,8 @@ public static class LoansModuleRegistration
         services.AddMediatR(cfg =>
             cfg.RegisterServicesFromAssembly(typeof(ILoansDbContext).Assembly));
 
+        services.AddHostedService<Outbox.LoanOutboxDispatcher>();
+
         return services;
     }
 }

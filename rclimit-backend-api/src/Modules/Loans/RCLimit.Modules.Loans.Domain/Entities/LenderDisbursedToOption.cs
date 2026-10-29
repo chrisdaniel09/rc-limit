@@ -8,6 +8,5 @@ public class LenderDisbursedToOption
     public string Label { get; set; } = string.Empty;
     public int SortOrder { get; set; }
     public bool IsActive { get; set; } = true;
-    public bool AllowsDisbursalLineItems { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 }

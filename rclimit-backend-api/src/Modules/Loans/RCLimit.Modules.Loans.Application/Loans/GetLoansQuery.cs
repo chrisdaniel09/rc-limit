@@ -14,10 +14,11 @@ public class GetLoansQueryHandler : IRequestHandler<GetLoansQuery, PagedResult<L
 {
     private static readonly Dictionary<string, Expression<Func<LoanTransaction, object?>>> SortMap = new(StringComparer.OrdinalIgnoreCase)
     {
-        ["loanNumber"] = l => l.LoanNumber,
+        ["applicationNumber"] = l => l.ApplicationNumber,
         ["customerName"] = l => l.Customer.LegalName,
         ["loanStatus"] = l => l.LoanStatus,
         ["disbursalDate"] = l => l.DisbursalDate,
+        ["requestedAmount"] = l => l.RequestedAmount,
         ["sanctionedAmount"] = l => l.SanctionedAmount,
         ["netDisbursedAmount"] = l => l.NetDisbursedAmount,
         ["createdAt"] = l => l.CreatedAt,
@@ -41,7 +42,7 @@ public class GetLoansQueryHandler : IRequestHandler<GetLoansQuery, PagedResult<L
             .Where(l => l.TenantId == _tenant.TenantId)
             .Where(l => string.IsNullOrEmpty(request.LoanStatus) || l.LoanStatus == request.LoanStatus)
             .Where(l => pattern == null
-                || EF.Functions.Like((l.LoanNumber ?? "").ToLower(), pattern)
+                || EF.Functions.Like(l.ApplicationNumber.ToLower(), pattern)
                 || EF.Functions.Like(l.Customer.LegalName.ToLower(), pattern)
                 || EF.Functions.Like(l.Vehicle.RegistrationNumber.ToLower(), pattern)
                 || EF.Functions.Like((l.LenderAgreementNumber ?? "").ToLower(), pattern));
@@ -54,11 +55,12 @@ public class GetLoansQueryHandler : IRequestHandler<GetLoansQuery, PagedResult<L
             .Take(paging.NormalizedPageSize)
             .Select(l => new LoanDto(
                 l.LoanId,
-                l.LoanNumber,
+                l.ApplicationNumber,
                 l.Customer.LegalName,
                 l.Vehicle.RegistrationNumber,
                 l.Pool.Lender.Name,
                 l.ProductType,
+                l.RequestedAmount,
                 l.SanctionedAmount,
                 l.NetDisbursedAmount,
                 l.CustomerRate,

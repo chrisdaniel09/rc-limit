@@ -4,6 +4,8 @@ Scope: loan creation, the loan list and detail, sub-limit enforcement, document 
 
 Paths are relative to `rclimit-backend-api/src/Modules/Loans/` unless shown otherwise.
 
+> **Update 2026-10-29:** fixed by the loan lifecycle and ledger work (`docs/Loans_Module_Enhancements.md` section 7): L1–L10, L12–L17, L19, L23, L25, L29 (dead RC-proof link removed), L31–L33. L11 is fixed for vehicle and pool, not partner. The line numbers below refer to the code before that change.
+
 ## Security
 
 | # | Severity | Gap | Evidence |

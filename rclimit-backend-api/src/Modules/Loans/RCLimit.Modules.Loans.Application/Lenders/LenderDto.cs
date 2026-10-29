@@ -6,4 +6,5 @@ public record LenderDto(
     string Code,
     decimal BaseInterestRate,
     int DefaultTenureLimitDays,
+    int PddSlaDays,
     string Status);

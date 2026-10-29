@@ -10,7 +10,8 @@ public record CreateLenderCommand(
     string Name,
     string Code,
     decimal BaseInterestRate,
-    int DefaultTenureLimitDays) : IRequest<Guid>;
+    int DefaultTenureLimitDays,
+    int PddSlaDays = 45) : IRequest<Guid>;
 
 public class CreateLenderCommandHandler : IRequestHandler<CreateLenderCommand, Guid>
 {
@@ -32,7 +33,8 @@ public class CreateLenderCommandHandler : IRequestHandler<CreateLenderCommand, G
             Name = request.Name,
             Code = request.Code,
             BaseInterestRate = request.BaseInterestRate,
-            DefaultTenureLimitDays = request.DefaultTenureLimitDays
+            DefaultTenureLimitDays = request.DefaultTenureLimitDays,
+            PddSlaDays = request.PddSlaDays
         };
 
         _db.Lenders.Add(lender);

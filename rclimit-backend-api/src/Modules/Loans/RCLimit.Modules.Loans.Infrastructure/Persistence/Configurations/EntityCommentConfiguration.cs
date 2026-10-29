@@ -8,7 +8,7 @@ public class EntityCommentConfiguration : IEntityTypeConfiguration<EntityComment
 {
     public void Configure(EntityTypeBuilder<EntityComment> builder)
     {
-        builder.ToTable("entity_comments");
+        builder.ToTable("entity_comments", LoansDbContext.Schema);
 
         builder.HasKey(c => c.CommentId);
 

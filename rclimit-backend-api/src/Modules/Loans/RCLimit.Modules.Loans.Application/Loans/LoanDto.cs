@@ -1,22 +1,25 @@
+using RCLimit.Modules.Loans.Application.DisbursalLineItems;
+
 namespace RCLimit.Modules.Loans.Application.Loans;
 
 public record LoanDto(
     Guid LoanId,
-    string? LoanNumber,
+    string ApplicationNumber,
     string CustomerName,
     string VehicleRegNo,
     string LenderName,
     string ProductType,
-    decimal SanctionedAmount,
+    decimal RequestedAmount,
+    decimal? SanctionedAmount,
     decimal NetDisbursedAmount,
     decimal CustomerRate,
     decimal TotalPayoutEarned,
     string LoanStatus,
-    DateOnly DisbursalDate);
+    DateOnly? DisbursalDate);
 
 public record LoanDetailDto(
     Guid LoanId,
-    string? LoanNumber,
+    string ApplicationNumber,
     string? LenderAgreementNumber,
     Guid CustomerId,
     string CustomerName,
@@ -26,22 +29,46 @@ public record LoanDetailDto(
     Guid PoolId,
     Guid? PartnerId,
     string ProductType,
-    decimal SanctionedAmount,
-    decimal LenderDisbursedAmount,
-    string LenderDisbursedTo,
+    decimal RequestedAmount,
+    decimal? SanctionedAmount,
     decimal NetDisbursedAmount,
     decimal CustomerRate,
+    int? TenureMonths,
     decimal BankPayoutPctAmt,
     decimal BonusPayoutAmt,
     decimal SharedPayoutAmt,
     decimal TotalPayoutEarned,
     string LoanStatus,
-    DateOnly DisbursalDate,
+    IReadOnlyList<string> NextStatuses,
+    DateOnly? LoggedInDate,
+    DateOnly? SanctionDate,
+    DateOnly? DisbursalDate,
+    DateOnly? EmiStartDate,
+    int? EmiDueDay,
+    DateOnly? PddDueDate,
+    DateOnly? ClosedDate,
+    DateOnly? RejectionWithdrawnDate,
+    string? RejectionWithdrawnReason,
     string? Remarks,
     string? RcStage,
     string? RcAgingStatus,
     int? RcAgingDays,
     Guid? PostDisbursementDocumentStatusId,
     string? PostDisbursementDocumentStatusLabel,
-    bool IsDisbursalLineItemsEnabled,
-    List<DisbursalLineItems.DisbursalLineItemDto> LineItems);
+    IReadOnlyList<DisbursalLineItemDto> LedgerEntries);
+
+public record RcLedgerRowDto(
+    Guid LineItemId,
+    Guid LoanId,
+    DateOnly EntryDate,
+    string ApplicationNumber,
+    string CustomerName,
+    string VehicleRegNo,
+    string LenderName,
+    string LoanStatus,
+    string EntryDirection,
+    string Counterparty,
+    string ParticularType,
+    decimal? CreditAmount,
+    decimal? DebitAmount,
+    decimal RunningBalanceAmt);

@@ -8,7 +8,7 @@ public class LenderDisbursedToOptionConfiguration : IEntityTypeConfiguration<Len
 {
     public void Configure(EntityTypeBuilder<LenderDisbursedToOption> builder)
     {
-        builder.ToTable("lender_disbursed_to_options");
+        builder.ToTable("lender_disbursed_to_options", LoansDbContext.Schema);
         builder.HasKey(e => e.OptionId);
         builder.Property(e => e.OptionId).HasColumnName("option_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");
@@ -16,7 +16,6 @@ public class LenderDisbursedToOptionConfiguration : IEntityTypeConfiguration<Len
         builder.Property(e => e.Label).HasColumnName("label").HasMaxLength(100);
         builder.Property(e => e.SortOrder).HasColumnName("sort_order");
         builder.Property(e => e.IsActive).HasColumnName("is_active");
-        builder.Property(e => e.AllowsDisbursalLineItems).HasColumnName("allows_disbursal_line_items");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
 
         builder.HasIndex(e => new { e.TenantId, e.Code }).IsUnique();

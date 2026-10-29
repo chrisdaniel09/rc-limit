@@ -1,12 +1,14 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
-using RCLimit.Modules.Accounting.Contracts;
+using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Domain.Entities;
+using RCLimit.Modules.Loans.Domain.Rules;
 
 namespace RCLimit.Modules.Loans.Application.Loans;
 
+// Creates a loan file in NEW. Nothing is sanctioned, utilized or posted here (spec section 3).
 public record CreateLoanCommand(
     Guid CustomerId,
     Guid VehicleId,
@@ -14,80 +16,83 @@ public record CreateLoanCommand(
     Guid? PartnerId,
     string? LenderAgreementNumber,
     string ProductType,
-    decimal SanctionedAmount,
-    decimal LenderDisbursedAmount,
-    string LenderDisbursedTo,
-    decimal CustomerRate,
+    decimal RequestedAmount,
     decimal BankPayoutPctAmt,
     decimal BonusPayoutAmt,
     decimal SharedPayoutAmt,
     string? Remarks) : IRequest<Guid>;
 
-public class CreateLoanCommandHandler(
-    ILoansDbContext db,
-    ITenantContext tenant,
-    IAccountingModuleApi accounting) : IRequestHandler<CreateLoanCommand, Guid>
+public class CreateLoanCommandHandler(ILoansDbContext db, ITenantContext tenant) : IRequestHandler<CreateLoanCommand, Guid>
 {
+    private static readonly string[] SupportedProductTypes = ["USED_CV", "NEW_CV", "REFINANCE"];
+
     public async Task<Guid> Handle(CreateLoanCommand request, CancellationToken cancellationToken)
     {
-        var subLimit = await db.CustomerSubLimits
-            .FirstOrDefaultAsync(s => s.CustomerId == request.CustomerId, cancellationToken);
+        if (request.RequestedAmount <= 0)
+            throw new ValidationException("Requested amount must be greater than zero.");
 
-        if (subLimit is not null && subLimit.StopSupplyFlag)
-            throw new InvalidOperationException("Stop-supply is active for this dealer. No new disbursals allowed.");
+        if (!SupportedProductTypes.Contains(request.ProductType))
+            throw new ValidationException($"Unsupported product type '{request.ProductType}'.");
 
-        if (subLimit is not null && subLimit.CurrentUtilization + request.SanctionedAmount > subLimit.AssignedCeiling)
-            throw new InvalidOperationException("Loan amount exceeds available sub-limit.");
+        var customerExists = await db.Customers.AnyAsync(
+            c => c.CustomerId == request.CustomerId && c.TenantId == tenant.TenantId, cancellationToken);
+        if (!customerExists)
+            throw new NotFoundException("Customer", request.CustomerId);
 
-        var loanId = Guid.NewGuid();
+        var vehicle = await db.Vehicles.FirstOrDefaultAsync(
+            v => v.VehicleId == request.VehicleId && v.TenantId == tenant.TenantId, cancellationToken)
+            ?? throw new NotFoundException("Vehicle", request.VehicleId);
+
+        // A loan can only be raised against a vehicle the selected customer owns today.
+        if (vehicle.OwnerCustomerId != request.CustomerId)
+            throw new BusinessRuleException(
+                "The selected vehicle is not owned by the selected customer.", "VEHICLE_NOT_OWNED_BY_CUSTOMER");
+
+        var poolExists = await db.MasterBankPools.AnyAsync(
+            p => p.PoolId == request.PoolId && p.TenantId == tenant.TenantId, cancellationToken);
+        if (!poolExists)
+            throw new NotFoundException("Bank pool", request.PoolId);
+
         var loan = new LoanTransaction
         {
-            LoanId = loanId,
+            LoanId = Guid.NewGuid(),
             TenantId = tenant.TenantId,
-            LoanNumber = $"LN-{DateTime.UtcNow:yyyy}-{Random.Shared.Next(1000, 9999)}",
+            ApplicationNumber = await NextApplicationNumberAsync(cancellationToken),
             LenderAgreementNumber = request.LenderAgreementNumber,
             CustomerId = request.CustomerId,
             VehicleId = request.VehicleId,
             PoolId = request.PoolId,
             PartnerId = request.PartnerId,
             ProductType = request.ProductType,
-            SanctionedAmount = request.SanctionedAmount,
-            LenderDisbursedAmount = request.LenderDisbursedAmount,
-            LenderDisbursedTo = request.LenderDisbursedTo,
-            NetDisbursedAmount = 0,
-            CustomerRate = request.CustomerRate,
+            RequestedAmount = request.RequestedAmount,
             BankPayoutPctAmt = request.BankPayoutPctAmt,
             BonusPayoutAmt = request.BonusPayoutAmt,
             SharedPayoutAmt = request.SharedPayoutAmt,
-            Remarks = request.Remarks
-        };
-
-        var tracker = new RcPipelineTracker
-        {
-            TrackerId = Guid.NewGuid(),
-            LoanId = loanId
+            Remarks = request.Remarks,
+            CreatedByUserId = tenant.UserId,
+            LoanStatus = LoanStatuses.New
         };
 
         db.LoanTransactions.Add(loan);
-        db.RcPipelineTrackers.Add(tracker);
+        await db.SaveAsync(cancellationToken);
 
-        if (subLimit is not null)
+        return loan.LoanId;
+    }
+
+    private async Task<string> NextApplicationNumberAsync(CancellationToken cancellationToken)
+    {
+        var sequence = await db.ApplicationNumberSequences
+            .FirstOrDefaultAsync(s => s.TenantId == tenant.TenantId, cancellationToken);
+
+        if (sequence is null)
         {
-            subLimit.CurrentUtilization += request.SanctionedAmount;
-            subLimit.PendingRcCount += 1;
-            subLimit.UpdatedAt = DateTime.UtcNow;
+            sequence = new ApplicationNumberSequence { TenantId = tenant.TenantId };
+            db.ApplicationNumberSequences.Add(sequence);
         }
 
-        await db.SaveChangesAsync(cancellationToken);
+        var number = sequence.NextValue;
+        sequence.NextValue++;
 
-        await accounting.PostDisbursalEntryAsync(new DisbursalPostingRequest(
-            tenant.TenantId,
-            loan.LoanId,
-            "BANK_DISBURSAL",
-            loan.SanctionedAmount,
-            $"Loan disbursal {loan.LoanNumber} — Sanctioned {loan.SanctionedAmount:N2}",
-            tenant.UserId));
-
-        return loanId;
+        return $"APP-{DateTime.UtcNow:yyyy}-{number:D6}";
     }
 }

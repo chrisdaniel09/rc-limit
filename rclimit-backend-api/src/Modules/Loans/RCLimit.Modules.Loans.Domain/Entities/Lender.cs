@@ -8,6 +8,9 @@ public class Lender
     public string Code { get; set; } = string.Empty;
     public decimal BaseInterestRate { get; set; }
     public int DefaultTenureLimitDays { get; set; } = 45;
+
+    // PDD window from disbursal, in days (decision D4).
+    public int PddSlaDays { get; set; } = 45;
     public string? ContactPersonDetails { get; set; }
     public string Status { get; set; } = "ACTIVE";
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;

@@ -2,12 +2,13 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using RCLimit.BuildingBlocks.Contracts;
 using RCLimit.Modules.Loans.Application.Abstractions;
+using RCLimit.Modules.Loans.Domain.Rules;
 
 namespace RCLimit.Modules.Loans.Application.Dashboard;
 
 public record RcAgingAlertDto(
     Guid LoanId,
-    string? LoanNumber,
+    string ApplicationNumber,
     string CustomerName,
     string VehicleRegNo,
     int AgingDays,
@@ -31,17 +32,18 @@ public class GetRcAgingAlertsQueryHandler : IRequestHandler<GetRcAgingAlertsQuer
         var tenantId = _tenant.TenantId;
         var today = DateOnly.FromDateTime(DateTime.UtcNow);
 
+        // The RC clock runs from disbursal until the loan is closed.
         var pending = await _db.LoanTransactions
-            .Where(l => l.TenantId == tenantId && l.LoanStatus == "DISBURSED_RC_PENDING")
+            .Where(l => l.TenantId == tenantId && l.LoanStatus == LoanStatuses.Disbursed && l.DisbursalDate != null)
             .Include(l => l.Customer)
             .Include(l => l.Vehicle)
             .Select(l => new
             {
                 l.LoanId,
-                l.LoanNumber,
+                l.ApplicationNumber,
                 CustomerName = l.Customer.LegalName,
                 VehicleRegNo = l.Vehicle.RegistrationNumber,
-                l.DisbursalDate
+                DisbursalDate = l.DisbursalDate!.Value
             })
             .ToListAsync(cancellationToken);
 
@@ -55,7 +57,7 @@ public class GetRcAgingAlertsQueryHandler : IRequestHandler<GetRcAgingAlertsQuer
                     <= 44 => "WARNING_ZONE",
                     _ => "OVERDUE_LOCK"
                 };
-                return new RcAgingAlertDto(l.LoanId, l.LoanNumber, l.CustomerName, l.VehicleRegNo, agingDays, status);
+                return new RcAgingAlertDto(l.LoanId, l.ApplicationNumber, l.CustomerName, l.VehicleRegNo, agingDays, status);
             })
             .Where(a => a.AgingDays > 15)
             .OrderByDescending(a => a.AgingDays)

@@ -8,7 +8,7 @@ public class RcPipelineTrackerConfiguration : IEntityTypeConfiguration<RcPipelin
 {
     public void Configure(EntityTypeBuilder<RcPipelineTracker> builder)
     {
-        builder.ToTable("rc_pipeline_tracker");
+        builder.ToTable("rc_pipeline_tracker", LoansDbContext.Schema);
         builder.HasKey(e => e.TrackerId);
         builder.Property(e => e.TrackerId).HasColumnName("tracker_id");
         builder.Property(e => e.LoanId).HasColumnName("loan_id");

@@ -11,8 +11,8 @@ This document describes how the backend is split into modules, what each module 
 | Identity | users, roles, rights, sessions | `auth` | Provides user lookups to other modules |
 | Accounting | ledger accounts, journal entries, posting rules | `accounting` | Receives disbursal postings from Loans |
 | System | tenants, tenant settings | `system` | Tenant resolution and session policy |
-| Partners | partners | `public` | Referenced by id from Leads and Loans |
-| Loans | customers, customer sub-limits, vehicles, customer-vehicle ownership, lenders, bank pools, loans, disbursal line items, RC tracker, entity comments (customers and loans), dashboard summary, reference data | `public` | Still one module; candidate for a later split |
+| Partners | partners | `partners` | Referenced by id from Leads and Loans |
+| Loans | customers, customer sub-limits, vehicles, customer-vehicle ownership, lenders, bank pools, loans, disbursal line items, RC tracker, entity comments (customers and loans), dashboard summary, reference data | `loans` | Still one module; candidate for a later split. Every table maps to `loans` (checked by `LoansSchemaTests`) |
 | Leads | leads, lead check logs, lead-customer links, lead comments, lead dashboard | `leads` | Separated; extraction-ready |
 
 Each module has four projects: `Domain`, `Contracts`, `Application` and `Infrastructure`. Only `Contracts` is visible to other modules.
@@ -71,7 +71,7 @@ Lead tables: `leads.leads`, `leads.lead_check_logs`, `leads.lead_customers`, `le
 
 Foreign keys still inside the lead schema: `lead_check_logs.lead_id`, `lead_customers.lead_id`, `lead_comments.lead_id`, all to `leads.leads`.
 
-Comments are split. Customers and loans use `public.entity_comments` (type `CUSTOMER` or `LOAN`). Leads use `leads.lead_comments`.
+Comments are split. Customers and loans use `loans.entity_comments` (type `CUSTOMER` or `LOAN`). Leads use `leads.lead_comments`.
 
 ---
 

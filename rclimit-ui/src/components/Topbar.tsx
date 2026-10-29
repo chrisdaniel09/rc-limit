@@ -6,6 +6,7 @@ const pageTitles: Record<string, string> = {
   '/lenders': 'Lenders',
   '/customers': 'Customers',
   '/loans': 'Loans',
+  '/rc-limit-ledger': 'RC Limit Ledger',
   '/partners': 'Partners',
   '/leads': 'Leads',
 };

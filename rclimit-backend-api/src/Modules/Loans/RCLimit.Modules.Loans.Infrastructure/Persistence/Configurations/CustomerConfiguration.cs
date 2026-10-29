@@ -8,7 +8,7 @@ public class CustomerConfiguration : IEntityTypeConfiguration<Customer>
 {
     public void Configure(EntityTypeBuilder<Customer> builder)
     {
-        builder.ToTable("customers");
+        builder.ToTable("customers", LoansDbContext.Schema);
         builder.HasKey(e => e.CustomerId);
         builder.Property(e => e.CustomerId).HasColumnName("customer_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

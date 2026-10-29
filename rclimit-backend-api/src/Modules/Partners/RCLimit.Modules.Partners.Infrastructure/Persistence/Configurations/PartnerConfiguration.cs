@@ -8,7 +8,7 @@ public class PartnerConfiguration : IEntityTypeConfiguration<Partner>
 {
     public void Configure(EntityTypeBuilder<Partner> builder)
     {
-        builder.ToTable("partners");
+        builder.ToTable("partners", PartnersDbContext.Schema);
         builder.HasKey(e => e.PartnerId);
         builder.Property(e => e.PartnerId).HasColumnName("partner_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

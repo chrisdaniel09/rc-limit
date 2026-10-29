@@ -8,7 +8,7 @@ public class PostDisbursementDocumentStatusConfiguration : IEntityTypeConfigurat
 {
     public void Configure(EntityTypeBuilder<PostDisbursementDocumentStatus> builder)
     {
-        builder.ToTable("post_disbursement_document_statuses");
+        builder.ToTable("post_disbursement_document_statuses", LoansDbContext.Schema);
 
         builder.HasKey(x => x.DocumentStatusId);
 

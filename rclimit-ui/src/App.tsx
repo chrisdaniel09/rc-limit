@@ -8,6 +8,7 @@ import CustomersPage from './pages/customers/CustomersPage';
 import CustomerDetailPage from './pages/customers/CustomerDetailPage';
 import LoansPage from './pages/loans/LoansPage';
 import LoanDetailPage from './pages/loans/LoanDetailPage';
+import RcLimitLedgerPage from './pages/loans/RcLimitLedgerPage';
 import PartnersPage from './pages/partners/PartnersPage';
 import LeadsPage from './pages/leads/LeadsPage';
 import LeadDetailPage from './pages/leads/LeadDetailPage';
@@ -52,6 +53,7 @@ export default function App() {
         <Route path="customers/:id" element={<CustomerDetailPage />} />
         <Route path="loans" element={<LoansPage />} />
         <Route path="loans/:id" element={<LoanDetailPage />} />
+        <Route path="rc-limit-ledger" element={<RcLimitLedgerPage />} />
         <Route path="partners" element={<PartnersPage />} />
         <Route path="leads" element={<LeadsPage />} />
         <Route path="leads/:id" element={<LeadDetailPage />} />

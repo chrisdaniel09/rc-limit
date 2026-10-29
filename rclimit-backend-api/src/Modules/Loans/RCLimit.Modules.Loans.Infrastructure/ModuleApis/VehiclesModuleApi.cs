@@ -5,13 +5,12 @@ using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.Modules.Loans.Application.Abstractions;
 using RCLimit.Modules.Loans.Contracts.Vehicles;
 using RCLimit.Modules.Loans.Domain.Entities;
+using RCLimit.Modules.Loans.Domain.Rules;
 
 namespace RCLimit.Modules.Loans.Infrastructure.ModuleApis;
 
 public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant) : IVehiclesModuleApi
 {
-    private const string OpenLoanStatus = "DISBURSED_RC_PENDING";
-
     public async Task<Guid?> FindCurrentOwnerIdAsync(string registrationNumber, CancellationToken cancellationToken = default)
     {
         var vehicle = await FindVehicleAsync(registrationNumber, cancellationToken);
@@ -181,7 +180,7 @@ public sealed class VehiclesModuleApi(ILoansDbContext db, ITenantContext tenant)
             .AsNoTracking()
             .AnyAsync(lt => lt.VehicleId == vehicle.VehicleId &&
                 lt.CustomerId == vehicle.OwnerCustomerId &&
-                lt.LoanStatus == OpenLoanStatus, cancellationToken);
+                LoanStatuses.OpenStatuses.Contains(lt.LoanStatus), cancellationToken);
 
     // A blank incoming value never changes the vehicle. A held value changes only when its field is in overwriteFields.
     // Passing null overwriteFields applies every incoming value (used for a vehicle created by this call).

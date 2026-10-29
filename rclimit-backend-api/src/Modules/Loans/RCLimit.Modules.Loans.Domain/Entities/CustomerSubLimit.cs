@@ -12,5 +12,8 @@ public class CustomerSubLimit
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
     public DateTime? UpdatedAt { get; set; }
 
+    // Row version (PostgreSQL xmin). Two loans cannot both take the same headroom.
+    public uint Version { get; set; }
+
     public Customer Customer { get; set; } = null!;
 }

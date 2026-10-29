@@ -8,7 +8,7 @@ public class CustomerSubLimitConfiguration : IEntityTypeConfiguration<CustomerSu
 {
     public void Configure(EntityTypeBuilder<CustomerSubLimit> builder)
     {
-        builder.ToTable("customer_sub_limits");
+        builder.ToTable("customer_sub_limits", LoansDbContext.Schema);
         builder.HasKey(e => e.SubLimitId);
         builder.Property(e => e.SubLimitId).HasColumnName("sub_limit_id");
         builder.Property(e => e.CustomerId).HasColumnName("customer_id");
@@ -19,5 +19,8 @@ public class CustomerSubLimitConfiguration : IEntityTypeConfiguration<CustomerSu
         builder.Property(e => e.StopSupplyFlag).HasColumnName("stop_supply_flag");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
         builder.Property(e => e.UpdatedAt).HasColumnName("updated_at");
+
+        // The row version. Two loans cannot both take the same headroom (gap L5).
+        builder.Property(e => e.Version).IsRowVersion();
     }
 }

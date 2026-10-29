@@ -20,10 +20,10 @@ Rights follow a `module.action` code pattern:
 - **users**: `users.manage` (assign/remove roles)
 - **roles**: `roles.manage` (create, edit, delete roles and assign rights)
 - **rights**: `rights.manage` (manage the rights catalogue)
-- **dashboard**: `dashboard.loan_stats` (loan summary cards), `dashboard.rc_aging` (RC aging alerts), `dashboard.my_leads` (the user's assigned leads). Each dashboard widget is gated by its own right; see `rclimit-db/seed/002_dashboard_rights.sql`. These are granted to SuperAdmin only by default; admins grant the rest per role.
+- **dashboard**: `dashboard.loan_stats` (loan summary cards), `dashboard.rc_aging` (RC aging alerts), `dashboard.my_leads` (the user's assigned leads). Each dashboard widget is gated by its own right; see `rclimit-db/seed/001_tenant_and_access.sql`. These are granted to SuperAdmin only by default; admins grant the rest per role.
 
 #### Adding a dashboard widget
-1. Add a `dashboard.<name>` right in a new idempotent script in `rclimit-db/seed/` (follow `rclimit-db/seed/002_dashboard_rights.sql`).
+1. Add a `dashboard.<name>` right to the rights catalogue in `rclimit-db/seed/001_tenant_and_access.sql`. Re-running the seed grants it to every system role.
 2. Add a query and a `GET /api/v1/dashboard/<name>` endpoint with `[HasRight("dashboard.<name>")]` in `DashboardController`.
 3. Create a self-contained component in `rclimit-ui/src/pages/dashboard/widgets/`, wrapped in `WidgetCard` (which provides the refresh button and error state).
 4. Append an entry to `dashboardWidgets` in `widgets/registry.ts`. `DashboardPage` needs no changes.

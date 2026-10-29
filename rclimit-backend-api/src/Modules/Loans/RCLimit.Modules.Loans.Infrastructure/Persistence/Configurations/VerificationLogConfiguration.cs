@@ -8,7 +8,7 @@ public class VerificationLogConfiguration : IEntityTypeConfiguration<Verificatio
 {
     public void Configure(EntityTypeBuilder<VerificationLog> builder)
     {
-        builder.ToTable("verification_logs");
+        builder.ToTable("verification_logs", LoansDbContext.Schema);
         builder.HasKey(e => e.VerificationId);
         builder.Property(e => e.VerificationId).HasColumnName("verification_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

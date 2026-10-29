@@ -8,7 +8,7 @@ public class DisbursalParticularTypeConfiguration : IEntityTypeConfiguration<Dis
 {
     public void Configure(EntityTypeBuilder<DisbursalParticularType> builder)
     {
-        builder.ToTable("disbursal_particular_types");
+        builder.ToTable("disbursal_particular_types", LoansDbContext.Schema);
         builder.HasKey(e => e.ParticularTypeId);
         builder.Property(e => e.ParticularTypeId).HasColumnName("particular_type_id");
         builder.Property(e => e.TenantId).HasColumnName("tenant_id");

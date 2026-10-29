@@ -4,9 +4,11 @@ Fix before you commit
 2. Auth:Edge:DisableInDevelopment is true in appsettings.json. Startup rejects that setting outside Development, so production would fail to start.
 3. Committed database password. appsettings.Development.json is tracked and contains the Neon connection string with its password. Rotate that password, then remove it from the file and use user-secrets or an environment variable.
 4. Committed JWT secret. Jwt:Secret in appsettings.json is a known value, so if Azure ever ran without Jwt__Secret, it would start with that known secret. Make the base value empty, so startup fails loudly without the variable. The value is also in git history, so rotate it.
-5. Default password in run_migrations.ps1. The default -Password "dc@2026" is committed. Remove the default and make the parameter mandatory.
+5. Default password in run_migrations.ps1. **Done 2026-10-29:** the runner no longer has a default password; it reads -Password, RCLIMIT_DB_PASSWORD or PGPASSWORD. The old value is still in git history, so rotate it.
 
-Two smaller points: the seed admin password Admin@123 is in 001_seed_data.sql, so don't run the seed against production. The runner applies every seed file to whatever database it points at.
+Two smaller points: the seed admin password Admin@123 is in seed/001_tenant_and_access.sql, and sample data is in seed/003_sample_data.sql. Against production, run `run_migrations.ps1 -SkipSeed`, or at least `-NoSampleData`.
+
+**Database baseline (2026-10-29).** The migrations were replaced by a fresh baseline (rclimit-db/migrations/001–010, see rclimit-db/README.md). The new runner records applied files in public.schema_migrations. Do not point it at an existing production database: it would try to create tables that already exist. Upgrading an existing database needs its own plan; see "Existing databases" in rclimit-db/README.md.
 
 Proposed appsettings.json (production, interim)
 
@@ -46,6 +48,6 @@ Order of operations
 
 1. Make the config changes above and rotate the database password and JWT secret.
 2. Set the App Service variables.
-3. Run migrations 024 and 025 against the production database. The runner also applies the seed, so run only the migration files there.
+3. Run migrations 024 and 025 against the production database. The runner also applies the seed, so run only the migration files there. (These were the pre-baseline files; they are in git history before 2026-10-29. Their content is now part of baseline migrations 002 and 003.)
 4. Deploy the API, then the UI.
 5. Sign in on the production Static Web App. Existing sessions end because the token format changed.

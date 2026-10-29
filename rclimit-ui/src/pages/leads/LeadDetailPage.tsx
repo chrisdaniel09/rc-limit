@@ -647,10 +647,9 @@ export default function LeadDetailPage() {
             </button>
           </div>
 
-          <div className="max-w-3xl">
-
-            {/* Left column: assignment, status, information */}
-            <div className="space-y-6">
+          <div className="space-y-6">
+            {/* Assignment and status side by side, information full width below */}
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
               <Card title="Lead assignment">
                 <FormField
                   label="Assigned team member"
@@ -675,24 +674,23 @@ export default function LeadDetailPage() {
                   disabled={!canEdit}
                 />
               </Card>
-
-              <Card title="Lead information">
-                <dl className="grid grid-cols-2 gap-4 text-sm">
-                  <InfoItem label="Financial requirement" value={requirementLabel} />
-                  <InfoItem label="Source" value={sourceLabel} />
-                  <InfoItem label="Phone" value={lead.whatsappPhoneNumber} />
-                  <InfoItem
-                    label="Requested amount"
-                    value={lead.requestedAmount ? `₹${lead.requestedAmount.toLocaleString('en-IN')}` : '-'}
-                  />
-                  <InfoItem label="Reference" value={lead.referenceNumber ?? '-'} />
-                  {lead.fieldSchema.map((field) => (
-                    <InfoItem key={field.key} label={field.label} value={formatDetail(lead.productDetails[field.key])} />
-                  ))}
-                </dl>
-              </Card>
             </div>
 
+            <Card title="Lead information">
+              <dl className="grid grid-cols-1 gap-4 text-sm sm:grid-cols-2 lg:grid-cols-4">
+                <InfoItem label="Financial requirement" value={requirementLabel} />
+                <InfoItem label="Source" value={sourceLabel} />
+                <InfoItem label="Phone" value={lead.whatsappPhoneNumber} />
+                <InfoItem
+                  label="Requested amount"
+                  value={lead.requestedAmount ? `₹${lead.requestedAmount.toLocaleString('en-IN')}` : '-'}
+                />
+                <InfoItem label="Reference" value={lead.referenceNumber ?? '-'} />
+                {lead.fieldSchema.map((field) => (
+                  <InfoItem key={field.key} label={field.label} value={formatDetail(lead.productDetails[field.key])} />
+                ))}
+              </dl>
+            </Card>
           </div>
         </div>
       </div>

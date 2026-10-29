@@ -1,0 +1,2 @@
+# Same bytes on every OS, so run_migrations.ps1 checksums match between Windows and CI.
+rclimit-db/**/*.sql text eol=lf

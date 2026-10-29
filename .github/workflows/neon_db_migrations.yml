@@ -1,0 +1,61 @@
+# Applies pending rclimit-db migrations and seeds to the Neon database.
+# The runner (rclimit-db/run_migrations.ps1) records applied migrations in public.schema_migrations,
+# so each migration runs once; seeds are idempotent and run every time.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   NEON_DB_HOST      e.g. ep-xxxx-xxxx.ap-southeast-1.aws.neon.tech (direct host, not the -pooler one)
+#   NEON_DB_NAME      e.g. rclimit
+#   NEON_DB_USER      e.g. neondb_owner
+#   NEON_DB_PASSWORD
+
+name: Apply database migrations to Neon
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - 'rclimit-db/migrations/**'
+      - 'rclimit-db/seed/**'
+      - 'rclimit-db/run_migrations.ps1'
+      - '.github/workflows/neon_db_migrations.yml'
+  workflow_dispatch:
+    inputs:
+      sample_data:
+        description: 'Also apply seed files containing "sample" (development data)'
+        type: boolean
+        default: false
+
+# Never run two migration jobs against the same database at once.
+concurrency:
+  group: neon-db-migrations
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check psql
+        run: psql --version
+
+      - name: Run migrations
+        shell: pwsh
+        working-directory: rclimit-db
+        env:
+          RCLIMIT_DB_PASSWORD: ${{ secrets.NEON_DB_PASSWORD }}
+          # Neon only accepts TLS connections.
+          PGSSLMODE: require
+          PGCONNECT_TIMEOUT: '30'
+        run: |
+          $params = @{
+            DbHost   = '${{ secrets.NEON_DB_HOST }}'
+            Database = '${{ secrets.NEON_DB_NAME }}'
+            User     = '${{ secrets.NEON_DB_USER }}'
+          }
+          if ('${{ inputs.sample_data }}' -ne 'true') { $params.NoSampleData = $true }
+          ./run_migrations.ps1 @params

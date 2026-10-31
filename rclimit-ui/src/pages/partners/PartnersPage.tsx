@@ -1,110 +1,140 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import PhoneInput from '../../components/PhoneInput';
-import { toPhoneNumber } from '../../utils/phone';
-import { useListState } from '../../hooks/useListState';
-import Pagination from '../../components/Pagination';
+import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { z } from 'zod';
+import { apiPost } from '@/api/client';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar, type FilterDef } from '@/components/FilterBar';
+import { FormField, focusFirstError, useZodForm } from '@/components/form';
+import { PercentInput, PhoneInput } from '@/components/inputs';
+import Pagination from '@/components/Pagination';
+import StatusBadge from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/choice';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Empty } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
+import { formatPercent, formatPhone } from '@/lib/format';
+import { INDIAN_MOBILE_MESSAGE, isValidIndianMobile, toPhoneNumber } from '@/utils/phone';
 
 interface Partner {
   partnerId: string;
   legalName: string;
   partnerType: string;
-  phoneNumber: string;
+  phoneNumber: string | null;
   defaultCommissionSplitPct: number;
   status: string;
 }
 
-export default function PartnersPage() {
-  const list = useListState({
-    storageKey: 'partners.pageSize',
-    defaultSortBy: 'legalName',
-    defaultSortDir: 'asc',
-    initialFilters: {},
-  });
-  const { data, meta, loading, refetch } = useFetch<Partner[]>(`/api/v1/partners?${list.query}`);
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ legalName: '', partnerType: 'SUB_BROKER', phoneNumber: '', defaultCommissionSplitPct: '70' });
-  const [submitting, setSubmitting] = useState(false);
+const PARTNER_TYPES = [
+  { value: 'SUB_BROKER', label: 'Sub-broker' },
+  { value: 'DSA_AGENT', label: 'DSA agent' },
+];
 
-  const columns: Column<Partner>[] = [
-    { key: 'legalName', header: 'Legal Name', sortKey: 'legalName' },
-    { key: 'partnerType', header: 'Type', sortKey: 'partnerType', render: (p) => <Badge text={p.partnerType.replace('_', ' ')} variant="info" /> },
-    { key: 'phoneNumber', header: 'Phone' },
-    { key: 'defaultCommissionSplitPct', header: 'Commission %', render: (p) => `${p.defaultCommissionSplitPct}%` },
-    { key: 'status', header: 'Status', sortKey: 'status', render: (p) => <Badge text={p.status} variant={statusVariant(p.status)} /> },
+const schema = z.object({
+  legalName: z.string().trim().min(2, 'Enter the legal name').max(200),
+  partnerType: z.enum(['SUB_BROKER', 'DSA_AGENT']),
+  phoneNumber: z.string().refine((v) => v === '' || isValidIndianMobile(v), INDIAN_MOBILE_MESSAGE),
+  defaultCommissionSplitPct: z.number({ error: 'Enter the commission split' }).min(0).max(100, 'At most 100%'),
+});
+
+const INITIAL_FILTERS = { status: '', partnerType: '' };
+
+// §10.10 Partners.
+export default function PartnersPage() {
+  const list = useListState({ storageKey: 'partners.pageSize', defaultSortBy: 'legalName', defaultSortDir: 'asc', initialFilters: INITIAL_FILTERS });
+  const { data, meta, loading, error, refetch } = useFetch<Partner[]>(`/api/v1/partners?${list.query}`, [], { staleAfter: LIST_STALE_MS });
+  const [open, setOpen] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const form = useZodForm(schema, { legalName: '', partnerType: 'SUB_BROKER', phoneNumber: '', defaultCommissionSplitPct: 70 });
+  const { control, handleSubmit, reset, formState } = form;
+
+  useEffect(() => {
+    if (open) {
+      reset();
+      setServerError(null);
+    }
+  }, [open, reset]);
+
+  const submit = handleSubmit(async (v) => {
+    setServerError(null);
+    try {
+      await apiPost('/api/v1/partners', { ...v, phoneNumber: toPhoneNumber(v.phoneNumber) });
+      notifySuccess('Partner added');
+      setOpen(false);
+      if (list.page === 1) void refetch();
+      else list.setPage(1);
+    } catch (err) {
+      setServerError(errorMessage(err, "The partner wasn't added."));
+    }
+  }, focusFirstError);
+
+  const filters: FilterDef[] = [
+    { key: 'partnerType', label: 'Type', type: 'single', options: PARTNER_TYPES },
+    { key: 'status', label: 'Status', type: 'single', options: [{ value: 'ACTIVE', label: 'Active' }, { value: 'INACTIVE', label: 'Inactive' }] },
   ];
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await apiPost('/api/v1/partners', {
-        legalName: form.legalName,
-        partnerType: form.partnerType,
-        phoneNumber: toPhoneNumber(form.phoneNumber),
-        defaultCommissionSplitPct: parseFloat(form.defaultCommissionSplitPct),
-      });
-      setShowModal(false);
-      setForm({ legalName: '', partnerType: 'SUB_BROKER', phoneNumber: '', defaultCommissionSplitPct: '70' });
-      // Keep the current page and filters; a changed page refetches on its own.
-      if (list.page === 1) refetch();
-      else list.setPage(1);
-    } catch {
-      // handle
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const columns: ColumnDef<Partner>[] = [
+    { id: 'name', header: 'Legal name', sortKey: 'legalName', mobile: 'title', cell: (p) => p.legalName },
+    { id: 'type', header: 'Type', sortKey: 'partnerType', mobile: 'subtitle', cell: (p) => PARTNER_TYPES.find((t) => t.value === p.partnerType)?.label ?? p.partnerType },
+    { id: 'phone', header: 'Phone', kind: 'number', align: 'start', mobile: 'meta', cell: (p) => (p.phoneNumber ? <a href={`tel:${p.phoneNumber}`} className="relative z-10 hover:underline">{formatPhone(p.phoneNumber)}</a> : <Empty />) },
+    { id: 'commission', header: 'Commission', kind: 'number', mobile: 'meta', cell: (p) => formatPercent(p.defaultCommissionSplitPct) },
+    { id: 'status', header: 'Status', sortKey: 'status', kind: 'status', mobile: 'badge', cell: (p) => <StatusBadge status={p.status} inTable /> },
+  ];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">All Partners</h2>
-        <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Partner
-        </button>
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data ?? []}
-        loading={loading}
-        searchPlaceholder="Search name or phone..."
-        server={{
-          searchValue: list.searchInput,
-          onSearchChange: list.setSearchInput,
-          sortBy: list.sortBy,
-          sortDir: list.sortDir,
-          onSort: list.updateSort,
-          footer: (
-            <Pagination
-              meta={meta}
-              pageSize={list.pageSize}
-              onPageChange={list.setPage}
-              onPageSizeChange={list.setPageSize}
-            />
-          ),
-        }}
+    <>
+      <PageHeader title="Partners" count={meta?.totalCount} actions={<Button icon={Plus} data-new-record onClick={() => setOpen(true)}>Add partner</Button>} />
+      <FilterBar
+        searchValue={list.searchInput}
+        onSearchChange={list.setSearchInput}
+        searchPlaceholder="Search name or phone…"
+        filters={filters}
+        values={list.filters}
+        onChange={(c) => list.setFilters(c as Partial<typeof INITIAL_FILTERS>)}
+        onClearAll={list.clearFilters}
+        resultCount={meta?.totalCount}
+        resultLabel="partners"
       />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Partner">
-        <form onSubmit={handleSubmit}>
-          <FormField label="Legal Name" value={form.legalName} onChange={(v) => setForm({ ...form, legalName: v })} required />
-          <FormField label="Type" value={form.partnerType} onChange={(v) => setForm({ ...form, partnerType: v })} options={[{ value: 'SUB_BROKER', label: 'Sub-Broker' }, { value: 'DSA_AGENT', label: 'DSA Agent' }]} />
-          <PhoneInput label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
-          <FormField label="Commission Split (%)" type="number" value={form.defaultCommissionSplitPct} onChange={(v) => setForm({ ...form, defaultCommissionSplitPct: v })} required />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+      <DataTable
+        label="Partners"
+        columns={columns}
+        rows={data}
+        getRowId={(p) => p.partnerId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        sort={{ sortBy: list.sortBy, sortDir: list.sortDir, onSort: list.updateSort, onSortChange: list.setSort }}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clearFilters}
+        accumulate={{ page: list.page, viewKey: list.viewKey }}
+        empty={{ title: 'No partners yet', description: 'Add sub-brokers and DSA agents who source loans.', action: <Button icon={Plus} onClick={() => setOpen(true)}>Add partner</Button> }}
+        footer={<Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />}
+      />
+      <ResponsiveDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="Add partner"
+        dirty={formState.isDirty}
+        error={serverError}
+        onSubmit={() => void submit()}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={formState.isSubmitting} loadingText="Adding…">Add partner</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <FormField control={control} name="legalName" label="Legal name" required render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} autoFocus />} />
+          <FormField control={control} name="partnerType" label="Type" required render={(f) => <Segmented aria-label="Partner type" value={f.value} onValueChange={(v) => f.onChange(v as 'SUB_BROKER')} options={PARTNER_TYPES} />} />
+          <FormField control={control} name="phoneNumber" label="Phone" optional render={(f) => <PhoneInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} />} />
+          <FormField control={control} name="defaultCommissionSplitPct" label="Commission split" required hint="The partner's share of the payout." render={(f) => <PercentInput value={f.value ?? null} onValueChange={(v) => f.onChange(v as number)} onBlur={f.onBlur} />} />
+        </div>
+      </ResponsiveDialog>
+    </>
   );
 }

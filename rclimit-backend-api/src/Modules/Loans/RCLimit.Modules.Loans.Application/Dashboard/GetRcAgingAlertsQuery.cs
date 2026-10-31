@@ -50,13 +50,8 @@ public class GetRcAgingAlertsQueryHandler : IRequestHandler<GetRcAgingAlertsQuer
         return pending
             .Select(l =>
             {
-                var agingDays = today.DayNumber - l.DisbursalDate.DayNumber;
-                var status = agingDays switch
-                {
-                    <= 30 => "ON_TIME",
-                    <= 44 => "WARNING_ZONE",
-                    _ => "OVERDUE_LOCK"
-                };
+                var agingDays = RcAgingRules.AgingDays(l.DisbursalDate, today);
+                var status = RcAgingRules.Status(agingDays);
                 return new RcAgingAlertDto(l.LoanId, l.ApplicationNumber, l.CustomerName, l.VehicleRegNo, agingDays, status);
             })
             .Where(a => a.AgingDays > 15)

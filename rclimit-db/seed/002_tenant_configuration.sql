@@ -91,3 +91,14 @@ INSERT INTO accounting.posting_rules (rule_id, tenant_id, particular_type, debit
     ('a0a00008-0000-0000-0000-000000000008', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'APPROX_FORECLOSER',        'acc00007-0000-0000-0000-000000000007', 'acc00001-0000-0000-0000-000000000001', 'FEE_DEDUCTION',      'Approx foreclosure amount deducted'),
     ('a0a00009-0000-0000-0000-000000000009', 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', 'COMMISSION_PAYOUT',        'acc00006-0000-0000-0000-000000000006', 'acc00001-0000-0000-0000-000000000001', 'COMMISSION_PAYOUT',  'Sub-broker commission paid out')
 ON CONFLICT DO NOTHING;
+
+-- 8. Default tenant theme (docs/ui_ux_specification.md §3.5). Only fills an empty theme, so hand edits are kept.
+-- Colors are left to the platform default; brand name and terminology keep today's wording.
+UPDATE system.tenant_settings
+SET theme = '{
+  "version": 1,
+  "brand": { "name": "Anna Finance", "shortName": "AF" },
+  "terminology": { "brokerLedgerName": "Anna Finance balance", "brokerCounterpartyCode": "ANNA_FINANCE" }
+}'::jsonb
+WHERE tenant_id = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890'
+  AND theme IS NULL;

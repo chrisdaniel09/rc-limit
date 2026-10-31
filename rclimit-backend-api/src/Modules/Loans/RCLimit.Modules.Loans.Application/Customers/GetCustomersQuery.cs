@@ -8,7 +8,20 @@ using RCLimit.Modules.Loans.Domain.Entities;
 
 namespace RCLimit.Modules.Loans.Application.Customers;
 
-public record GetCustomersQuery(string? CustomerType, string? RiskStatus, PageQuery Paging) : IRequest<PagedResult<CustomerDto>>;
+/// <summary>
+/// Filters for the customers list (docs/ui_ux_specification.md §10.5). RiskStatuses and CibilTiers are sets; empty means any.
+/// UtilizationBand is LOW, WARN or HIGH against the tenant's thresholds, which the caller passes (they live in the System module).
+/// </summary>
+public record CustomerListFilter(
+    string? CustomerType = null,
+    IReadOnlyList<string>? RiskStatuses = null,
+    IReadOnlyList<string>? CibilTiers = null,
+    bool? StopSupply = null,
+    string? UtilizationBand = null,
+    int WarnPct = 70,
+    int DangerPct = 90);
+
+public record GetCustomersQuery(CustomerListFilter Filter, PageQuery Paging) : IRequest<PagedResult<CustomerDto>>;
 
 public class GetCustomersQueryHandler : IRequestHandler<GetCustomersQuery, PagedResult<CustomerDto>>
 {
@@ -37,12 +50,33 @@ public class GetCustomersQueryHandler : IRequestHandler<GetCustomersQuery, Paged
 
         var query = _db.Customers
             .Where(c => c.TenantId == _tenant.TenantId)
-            .Where(c => string.IsNullOrEmpty(request.CustomerType) || c.CustomerType == request.CustomerType)
-            .Where(c => string.IsNullOrEmpty(request.RiskStatus) || c.RiskStatus == request.RiskStatus)
             .Where(c => pattern == null
                 || EF.Functions.Like(c.LegalName.ToLower(), pattern)
                 || EF.Functions.Like((c.TradeName ?? "").ToLower(), pattern)
                 || EF.Functions.Like((c.PhoneNumber ?? "").ToLower(), pattern));
+
+        var f = request.Filter;
+        if (!string.IsNullOrEmpty(f.CustomerType)) query = query.Where(c => c.CustomerType == f.CustomerType);
+        if (f.RiskStatuses is { Count: > 0 } risks) query = query.Where(c => risks.Contains(c.RiskStatus));
+        if (f.CibilTiers is { Count: > 0 } tiers) query = query.Where(c => c.CibilTier != null && tiers.Contains(c.CibilTier));
+        if (f.StopSupply is { } stop) query = query.Where(c => (c.SubLimit != null && c.SubLimit.StopSupplyFlag) == stop);
+        // Compared as utilization × 100 against ceiling × pct, so there is no division by a zero ceiling.
+        decimal warn = Math.Clamp(f.WarnPct, 1, 100), danger = Math.Clamp(f.DangerPct, 1, 100);
+        switch (f.UtilizationBand?.ToUpperInvariant())
+        {
+            case "LOW":
+                query = query.Where(c => c.SubLimit == null || c.SubLimit.CurrentUtilization * 100 < c.SubLimit.AssignedCeiling * warn);
+                break;
+            case "WARN":
+                query = query.Where(c => c.SubLimit != null
+                    && c.SubLimit.CurrentUtilization * 100 >= c.SubLimit.AssignedCeiling * warn
+                    && c.SubLimit.CurrentUtilization * 100 < c.SubLimit.AssignedCeiling * danger);
+                break;
+            case "HIGH":
+                query = query.Where(c => c.SubLimit != null && c.SubLimit.CurrentUtilization > 0
+                    && c.SubLimit.CurrentUtilization * 100 >= c.SubLimit.AssignedCeiling * danger);
+                break;
+        }
 
         var total = await query.CountAsync(cancellationToken);
 

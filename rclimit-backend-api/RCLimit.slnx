@@ -48,5 +48,6 @@
     <Project Path="tests/RCLimit.ArchitectureTests/RCLimit.ArchitectureTests.csproj" />
     <Project Path="tests/RCLimit.Modules.Leads.UnitTests/RCLimit.Modules.Leads.UnitTests.csproj" />
     <Project Path="tests/RCLimit.Modules.Loans.UnitTests/RCLimit.Modules.Loans.UnitTests.csproj" />
+    <Project Path="tests/RCLimit.Modules.System.UnitTests/RCLimit.Modules.System.UnitTests.csproj" />
   </Folder>
 </Solution>

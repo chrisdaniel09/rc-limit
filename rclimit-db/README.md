@@ -26,6 +26,7 @@ PostgreSQL 13 or later (developed on 18). The schema follows the module boundari
 | `008_loans_lifecycle.sql` | Loans | loan files, ledger entries, RC tracker, application-number sequence, outbox |
 | `009_leads.sql` | Leads | product types, leads, action runs, check logs, lead-customer links, comments |
 | `010_app_role_grants.sql` | all | grants to `app_user`, only if that role exists |
+| `011_tenant_branding.sql` | System | tenant theme (`theme` JSONB) and sub-limit utilization thresholds on `tenant_settings` |
 
 Loans tables are in the `loans` schema, as `docs/loan_lifecycle_file_revamp_specification.md` section 11 requires.
 Partners tables are in the `partners` schema. `public` holds only the migration history (`public.schema_migrations`).

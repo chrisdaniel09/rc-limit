@@ -1,10 +1,23 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost, apiPut } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
+import { useEffect, useState } from 'react';
+import { ArrowRight, Edit3, Plus } from 'lucide-react';
+import { apiPost, apiPut } from '@/api/client';
+import { useClientFilter } from '@/hooks/useClientFilter';
+import { useFetch } from '@/hooks/useFetch';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar } from '@/components/FilterBar';
+import StatusBadge from '@/components/StatusBadge';
+import Badge from '@/components/Badge';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/choice';
+import { Combobox } from '@/components/ui/combobox';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
+import { PageHeader } from '@/layouts/templates';
+import { humanize } from '@/lib/format';
 
 interface PostingRule {
   ruleId: string;
@@ -20,161 +33,120 @@ interface PostingRule {
   isActive: boolean;
 }
 
-interface LedgerAccount {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-}
+interface LedgerAccount { accountId: string; accountCode: string; accountName: string; accountType: string }
+interface ParticularType { particularTypeId: string; code: string; label: string; isActive: boolean }
 
-interface ParticularType {
-  particularTypeId: string;
-  code: string;
-  label: string;
-  isActive: boolean;
-}
+const TRANSACTION_TYPES = ['BANK_DISBURSAL', 'CUSTOMER_DISBURSAL', 'FEE_DEDUCTION', 'COMMISSION_PAYOUT', 'ADJUSTMENT'].map((v) => ({ value: v, label: humanize(v) }));
 
-const TRANSACTION_TYPES = [
-  { value: 'BANK_DISBURSAL', label: 'Bank Disbursal' },
-  { value: 'CUSTOMER_DISBURSAL', label: 'Customer Disbursal' },
-  { value: 'FEE_DEDUCTION', label: 'Fee Deduction' },
-  { value: 'COMMISSION_PAYOUT', label: 'Commission Payout' },
-  { value: 'ADJUSTMENT', label: 'Adjustment' },
-];
-
+// §10.13 Posting rules: which accounts each line item type posts to.
 export default function PostingRulesPage() {
-  const { data: rules, loading, refetch } = useFetch<PostingRule[]>('/api/v1/accounting/posting-rules');
+  const { data: rules, loading, error, refetch } = useFetch<PostingRule[]>('/api/v1/accounting/posting-rules');
   const { data: accounts } = useFetch<LedgerAccount[]>('/api/v1/accounting/accounts');
   const { data: particularTypes } = useFetch<ParticularType[]>('/api/v1/particular-types');
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<PostingRule | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const list = useClientFilter(rules, (r) => [r.particularType, r.debitAccountCode, r.creditAccountCode, r.description]);
+  const [editor, setEditor] = useState<{ open: boolean; rule: PostingRule | null }>({ open: false, rule: null });
+  const [form, setForm] = useState({ particularType: '', debitAccountId: '', creditAccountId: '', transactionType: 'FEE_DEDUCTION', description: '', isActive: true });
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    particularType: '',
-    debitAccountId: '',
-    creditAccountId: '',
-    transactionType: 'FEE_DEDUCTION',
-    description: '',
-    isActive: true,
-  });
+  useEffect(() => {
+    if (!editor.open) return;
+    const r = editor.rule;
+    setForm(r
+      ? { particularType: r.particularType, debitAccountId: r.debitAccountId, creditAccountId: r.creditAccountId, transactionType: r.transactionType, description: r.description ?? '', isActive: r.isActive }
+      : { particularType: '', debitAccountId: '', creditAccountId: '', transactionType: 'FEE_DEDUCTION', description: '', isActive: true });
+    setServerError(null);
+  }, [editor]);
 
-  const accountOptions = accounts?.map((a) => ({
-    value: a.accountId,
-    label: `${a.accountCode} — ${a.accountName}`,
-  })) ?? [];
+  const accountOptions = (accounts ?? []).map((a) => ({ value: a.accountId, label: `${a.accountCode} — ${a.accountName}`, secondary: humanize(a.accountType) }));
+  const particularLabel = (code: string) => particularTypes?.find((p) => p.code === code)?.label ?? humanize(code);
 
-  const columns: Column<PostingRule>[] = [
-    { key: 'particularType', header: 'Particular Type', render: (r) => <span className="font-mono text-xs">{r.particularType}</span> },
-    { key: 'debitAccountCode', header: 'Debit Account', render: (r) => (
-      <span title={r.debitAccountName} className="font-mono text-xs">{r.debitAccountCode}</span>
-    )},
-    { key: 'creditAccountCode', header: 'Credit Account', render: (r) => (
-      <span title={r.creditAccountName} className="font-mono text-xs">{r.creditAccountCode}</span>
-    )},
-    { key: 'transactionType', header: 'Txn Type', render: (r) => <Badge text={r.transactionType} variant="info" /> },
-    { key: 'description', header: 'Description', render: (r) => r.description ?? '-' },
-    { key: 'isActive', header: 'Status', render: (r) => <Badge text={r.isActive ? 'Active' : 'Inactive'} variant={r.isActive ? 'success' : 'neutral'} /> },
-  ];
-
-  const openCreate = () => {
-    setEditing(null);
-    setForm({ particularType: '', debitAccountId: '', creditAccountId: '', transactionType: 'FEE_DEDUCTION', description: '', isActive: true });
-    setShowModal(true);
-  };
-
-  const openEdit = (rule: PostingRule) => {
-    setEditing(rule);
-    setForm({
-      particularType: rule.particularType,
-      debitAccountId: rule.debitAccountId,
-      creditAccountId: rule.creditAccountId,
-      transactionType: rule.transactionType,
-      description: rule.description ?? '',
-      isActive: rule.isActive,
-    });
-    setShowModal(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
+  const save = async () => {
+    if ((!editor.rule && !form.particularType) || !form.debitAccountId || !form.creditAccountId) {
+      setServerError('Choose the line item type and both accounts.');
+      return;
+    }
+    if (form.debitAccountId === form.creditAccountId) {
+      setServerError('Debit and credit accounts must differ.');
+      return;
+    }
+    setSaving(true);
+    setServerError(null);
+    const body = { debitAccountId: form.debitAccountId, creditAccountId: form.creditAccountId, transactionType: form.transactionType, description: form.description || null };
     try {
-      if (editing) {
-        await apiPut(`/api/v1/accounting/posting-rules/${editing.ruleId}`, {
-          debitAccountId: form.debitAccountId,
-          creditAccountId: form.creditAccountId,
-          transactionType: form.transactionType,
-          description: form.description || null,
-          isActive: form.isActive,
-        });
-      } else {
-        await apiPost('/api/v1/accounting/posting-rules', {
-          particularType: form.particularType,
-          debitAccountId: form.debitAccountId,
-          creditAccountId: form.creditAccountId,
-          transactionType: form.transactionType,
-          description: form.description || null,
-        });
-      }
-      setShowModal(false);
-      refetch();
-    } catch {
-      // handle
+      if (editor.rule) await apiPut(`/api/v1/accounting/posting-rules/${editor.rule.ruleId}`, { ...body, isActive: form.isActive });
+      else await apiPost('/api/v1/accounting/posting-rules', { ...body, particularType: form.particularType });
+      notifySuccess(editor.rule ? 'Posting rule saved' : 'Posting rule added');
+      setEditor({ open: false, rule: null });
+      void refetch();
+    } catch (err) {
+      setServerError(errorMessage(err, "The posting rule wasn't saved."));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
+  const columns: ColumnDef<PostingRule>[] = [
+    { id: 'type', header: 'Line item type', mobile: 'title', cell: (r) => particularLabel(r.particularType) },
+    {
+      id: 'posting', header: 'Debit → credit', mobile: 'subtitle',
+      cell: (r) => (
+        <span className="inline-flex items-center gap-2">
+          <Tooltip content={r.debitAccountName}><span className="id-mono" tabIndex={0}>{r.debitAccountCode}</span></Tooltip>
+          <ArrowRight aria-label="to" className="size-3.5 text-muted-foreground" />
+          <Tooltip content={r.creditAccountName}><span className="id-mono" tabIndex={0}>{r.creditAccountCode}</span></Tooltip>
+        </span>
+      ),
+    },
+    { id: 'txn', header: 'Transaction type', mobile: 'meta', cell: (r) => <Badge text={humanize(r.transactionType)} variant="info" /> },
+    { id: 'desc', header: 'Description', priority: 2, mobile: 'hidden', cell: (r) => <span className="block max-w-64 truncate text-muted-foreground">{r.description ?? '—'}</span> },
+    { id: 'status', header: 'Status', kind: 'status', mobile: 'badge', cell: (r) => <StatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} inTable /> },
+  ];
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h2 className="text-lg font-semibold text-gray-900">Posting Rules</h2>
-          <p className="text-sm text-gray-500 mt-1">Map disbursal line item types to debit/credit accounts for automatic journal entries</p>
+    <>
+      <PageHeader
+        title="Posting rules"
+        count={rules?.length}
+        description="Which accounts each line item type posts to."
+        actions={<Button icon={Plus} data-new-record onClick={() => setEditor({ open: true, rule: null })}>Add rule</Button>}
+      />
+      <FilterBar searchValue={list.search} onSearchChange={list.setSearch} searchPlaceholder="Search rules…" />
+      <DataTable
+        label="Posting rules"
+        columns={columns}
+        rows={list.filtered}
+        getRowId={(r) => r.ruleId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clear}
+        rowActions={(r) => [{ label: 'Edit', icon: Edit3, onSelect: () => setEditor({ open: true, rule: r }) }]}
+        empty={{ title: 'No posting rules yet', action: <Button icon={Plus} onClick={() => setEditor({ open: true, rule: null })}>Add rule</Button> }}
+      />
+      <ResponsiveDialog
+        open={editor.open}
+        onOpenChange={(o) => setEditor((e) => ({ ...e, open: o }))}
+        variant="sheet"
+        title={editor.rule ? 'Edit posting rule' : 'Add posting rule'}
+        error={serverError}
+        onSubmit={() => void save()}
+        footer={<><Button variant="outline" onClick={() => setEditor((e) => ({ ...e, open: false }))}>Cancel</Button><Button type="submit" loading={saving} loadingText="Saving…">{editor.rule ? 'Save rule' : 'Add rule'}</Button></>}
+      >
+        <div className="space-y-4">
+          <Field label="Line item type" required>
+            {editor.rule
+              ? <Input value={particularLabel(form.particularType)} readOnly />
+              : <Select value={form.particularType} onValueChange={(v) => setForm((f) => ({ ...f, particularType: v }))} options={(particularTypes ?? []).filter((p) => p.isActive).map((p) => ({ value: p.code, label: p.label }))} />}
+          </Field>
+          <Field label="Debit account" required><Combobox value={form.debitAccountId} onValueChange={(v) => setForm((f) => ({ ...f, debitAccountId: v }))} options={accountOptions} placeholder="Choose an account" /></Field>
+          <Field label="Credit account" required><Combobox value={form.creditAccountId} onValueChange={(v) => setForm((f) => ({ ...f, creditAccountId: v }))} options={accountOptions} placeholder="Choose an account" /></Field>
+          <Field label="Transaction type" required><Select value={form.transactionType} onValueChange={(v) => setForm((f) => ({ ...f, transactionType: v }))} options={TRANSACTION_TYPES} /></Field>
+          <Field label="Description" optional><Input value={form.description} onChange={(e) => setForm((f) => ({ ...f, description: e.target.value }))} /></Field>
+          {editor.rule && <Switch label="Active" checked={form.isActive} onCheckedChange={(v) => setForm((f) => ({ ...f, isActive: v }))} />}
         </div>
-        <button onClick={openCreate} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Rule
-        </button>
-      </div>
-
-      <DataTable columns={columns} data={rules ?? []} loading={loading} onRowClick={openEdit} searchPlaceholder="Search rules..." />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? 'Edit Posting Rule' : 'Add Posting Rule'}>
-        <form onSubmit={handleSubmit}>
-          {editing ? (
-            <div className="mb-4">
-              <label className="block text-sm font-medium text-gray-700">Particular Type</label>
-              <p className="mt-1 text-sm font-mono text-gray-900 bg-gray-50 px-3 py-2 rounded-md border border-gray-200">{form.particularType}</p>
-            </div>
-          ) : (
-            <FormField label="Particular Type" value={form.particularType} onChange={(v) => setForm({ ...form, particularType: v })} required options={
-              (particularTypes ?? []).filter(t => t.isActive).map(t => ({ value: t.code, label: `${t.code} — ${t.label}` }))
-            } />
-          )}
-          <FormField label="Debit Account" value={form.debitAccountId} onChange={(v) => setForm({ ...form, debitAccountId: v })} required options={accountOptions} />
-          <FormField label="Credit Account" value={form.creditAccountId} onChange={(v) => setForm({ ...form, creditAccountId: v })} required options={accountOptions} />
-          <FormField label="Transaction Type" value={form.transactionType} onChange={(v) => setForm({ ...form, transactionType: v })} required options={TRANSACTION_TYPES} />
-          <FormField label="Description" value={form.description} onChange={(v) => setForm({ ...form, description: v })} placeholder="Explain what this rule does" />
-          {editing && (
-            <div className="mb-4">
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={form.isActive}
-                  onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                  className="rounded border-gray-300 text-indigo-600 focus:ring-indigo-500"
-                />
-                Active
-              </label>
-            </div>
-          )}
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+      </ResponsiveDialog>
+    </>
   );
 }

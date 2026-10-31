@@ -1,11 +1,32 @@
-import { useState } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost, apiPut } from '../../api/client';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
+import { useEffect, useState } from 'react';
+import { useParams, useSearchParams } from 'react-router-dom';
+import { Edit3, FilePlus2, Plus, RotateCw, UserCheck } from 'lucide-react';
+import { z } from 'zod';
+import { apiPost, apiPut } from '@/api/client';
+import { DETAIL_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useTerms } from '@/theme/ThemeProvider';
+import ActivityThread, { type ActivityEvent } from '@/components/ActivityThread';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FormField, focusFirstError, useZodForm } from '@/components/form';
+import { CodeInput, IntegerInput, RegNoInput, isValidRegNo } from '@/components/inputs';
+import { MetricCard, MetricStrip, UtilizationMeter } from '@/components/metrics';
+import StatusBadge from '@/components/StatusBadge';
+import Badge from '@/components/Badge';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Card, Empty, Skeleton } from '@/components/ui/feedback';
+import { FieldGrid } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { Tabs } from '@/components/ui/tabs';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
+import { useRecordTitle } from '@/layouts/PageMeta';
+import { MetaSep, RecordHeader, StickyActionDock } from '@/layouts/templates';
+import { formatDate, formatINR, formatPhone, formatRegNo, humanize } from '@/lib/format';
+import CreateLoanDialog from '../loans/CreateLoanDialog';
+import type { LoanListItem } from '../loans/loanTypes';
 
 interface Customer {
   customerId: string;
@@ -49,273 +70,328 @@ interface CustomerLead {
   vehicleAction: string | null;
 }
 
-const emptyVehicleForm = {
-  registrationNumber: '', chassisNumber: '', engineNumber: '',
-  make: '', model: '', variant: '', yearOfMfg: '',
-  ownershipCount: '1', currentRtoStatus: 'CLEAN',
-};
+const RTO_STATUSES = [
+  { value: 'CLEAN', label: 'Clean' },
+  { value: 'HYPOTHECATED', label: 'Hypothecated' },
+  { value: 'RC_PENDING', label: 'RC pending' },
+  { value: 'BLACKLISTED', label: 'Blacklisted' },
+];
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+const thisYear = new Date().getFullYear();
 
-export default function CustomerDetailPage() {
-  const { id } = useParams<{ id: string }>();
-  const navigate = useNavigate();
-  const { data: customer, loading: custLoading } = useFetch<Customer>(`/api/v1/customers/${id}`);
-  const { data: vehicles, loading: vehLoading, refetch } = useFetch<Vehicle[]>(`/api/v1/customers/${id}/vehicles`);
-  const { data: leads = [] } = useFetch<CustomerLead[]>(`/api/v1/customers/${id}/leads`);
+const vehicleSchema = z.object({
+  registrationNumber: z.string().min(1, 'Enter the registration number').refine(isValidRegNo, 'Use the Indian format, for example GJ05BX1234'),
+  make: z.string().max(60),
+  model: z.string().max(60),
+  variant: z.string().max(60),
+  yearOfMfg: z.number().int().min(1980, 'Check the year').max(thisYear + 1, 'Check the year').nullable(),
+  ownershipCount: z.number({ error: 'Enter the ownership count' }).int().min(1).max(20),
+  chassisNumber: z.string().max(30),
+  engineNumber: z.string().max(30),
+  currentRtoStatus: z.string(),
+});
 
-  const [showModal, setShowModal] = useState(false);
-  const [editVehicle, setEditVehicle] = useState<Vehicle | null>(null);
-  const [form, setForm] = useState(emptyVehicleForm);
-  const [submitting, setSubmitting] = useState(false);
-
-  const openAdd = () => {
-    setEditVehicle(null);
-    setForm(emptyVehicleForm);
-    setShowModal(true);
+function VehicleDialog({ open, onOpenChange, customerId, vehicle, onSaved }: {
+  open: boolean;
+  onOpenChange: (o: boolean) => void;
+  customerId: string;
+  vehicle: Vehicle | null;
+  onSaved: () => void;
+}) {
+  const [serverError, setServerError] = useState<string | null>(null);
+  const defaults = {
+    registrationNumber: vehicle?.registrationNumber ?? '', make: vehicle?.make ?? '', model: vehicle?.model ?? '', variant: vehicle?.variant ?? '',
+    yearOfMfg: vehicle?.yearOfMfg ?? null, ownershipCount: vehicle?.ownershipCount ?? 1, chassisNumber: vehicle?.chassisNumber ?? '',
+    engineNumber: vehicle?.engineNumber ?? '', currentRtoStatus: vehicle?.currentRtoStatus ?? 'CLEAN',
   };
-
-  const openEdit = (v: Vehicle) => {
-    setEditVehicle(v);
-    setForm({
-      registrationNumber: v.registrationNumber,
-      chassisNumber: v.chassisNumber ?? '',
-      engineNumber: v.engineNumber ?? '',
-      make: v.make ?? '',
-      model: v.model ?? '',
-      variant: v.variant ?? '',
-      yearOfMfg: v.yearOfMfg?.toString() ?? '',
-      ownershipCount: v.ownershipCount.toString(),
-      currentRtoStatus: v.currentRtoStatus,
-    });
-    setShowModal(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      if (editVehicle) {
-        await apiPut(`/api/v1/vehicles/${editVehicle.vehicleId}`, {
-          registrationNumber: form.registrationNumber,
-          chassisNumber: form.chassisNumber || null,
-          engineNumber: form.engineNumber || null,
-          make: form.make || null,
-          model: form.model || null,
-          variant: form.variant || null,
-          yearOfMfg: form.yearOfMfg ? parseInt(form.yearOfMfg) : null,
-          ownershipCount: parseInt(form.ownershipCount) || 1,
-          ownerCustomerId: id,
-          currentRtoStatus: form.currentRtoStatus,
-        });
-      } else {
-        await apiPost(`/api/v1/customers/${id}/vehicles`, {
-          registrationNumber: form.registrationNumber,
-          chassisNumber: form.chassisNumber || null,
-          engineNumber: form.engineNumber || null,
-          make: form.make || null,
-          model: form.model || null,
-          variant: form.variant || null,
-          yearOfMfg: form.yearOfMfg ? parseInt(form.yearOfMfg) : null,
-        });
-      }
-      setShowModal(false);
-      refetch();
-    } catch {
-      // handle error
-    } finally {
-      setSubmitting(false);
+  const form = useZodForm(vehicleSchema, defaults);
+  const { control, handleSubmit, reset, formState } = form;
+  useEffect(() => {
+    if (open) {
+      reset(defaults);
+      setServerError(null);
     }
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, vehicle]);
 
-  if (custLoading) {
-    return <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-10 bg-gray-100 rounded animate-pulse" />)}</div>;
-  }
+  const submit = handleSubmit(async (v) => {
+    setServerError(null);
+    const body = {
+      registrationNumber: v.registrationNumber,
+      chassisNumber: v.chassisNumber || null,
+      engineNumber: v.engineNumber || null,
+      make: v.make || null,
+      model: v.model || null,
+      variant: v.variant || null,
+      yearOfMfg: v.yearOfMfg,
+    };
+    try {
+      if (vehicle) {
+        await apiPut(`/api/v1/vehicles/${vehicle.vehicleId}`, { ...body, ownershipCount: v.ownershipCount, ownerCustomerId: customerId, currentRtoStatus: v.currentRtoStatus });
+        notifySuccess('Vehicle updated');
+      } else {
+        await apiPost(`/api/v1/customers/${customerId}/vehicles`, body);
+        notifySuccess('Vehicle added');
+      }
+      onOpenChange(false);
+      onSaved();
+    } catch (err) {
+      setServerError(errorMessage(err, "The vehicle wasn't saved."));
+    }
+  }, focusFirstError);
 
-  if (!customer) {
-    return <div className="text-center text-gray-500 py-12">Customer not found</div>;
-  }
-
-  const pct = customer.assignedCeiling > 0 ? (customer.currentUtilization / customer.assignedCeiling) * 100 : 0;
+  const text = (name: 'make' | 'model' | 'variant', label: string) => (
+    <FormField control={control} name={name} label={label} optional render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+  );
 
   return (
-    <div>
-      <button onClick={() => navigate('/customers')} className="text-sm text-indigo-600 hover:text-indigo-800 mb-4 inline-flex items-center gap-1">
-        &larr; Back to Customers
-      </button>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title={vehicle ? 'Edit vehicle' : 'Add vehicle'}
+      size="lg"
+      dirty={formState.isDirty}
+      onSubmit={() => void submit()}
+      error={serverError}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" loading={formState.isSubmitting} loadingText="Saving…">{vehicle ? 'Save vehicle' : 'Add vehicle'}</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <FormField control={control} name="registrationNumber" label="Registration no" required render={(f) => <RegNoInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} autoFocus />} />
+        <FieldGrid columns={3}>{text('make', 'Make')}{text('model', 'Model')}{text('variant', 'Variant')}</FieldGrid>
+        <FieldGrid>
+          <FormField control={control} name="yearOfMfg" label="Year of manufacture" optional render={(f) => <IntegerInput value={f.value ?? null} onValueChange={f.onChange} onBlur={f.onBlur} min={1980} max={thisYear + 1} />} />
+          {vehicle && (
+            <FormField control={control} name="ownershipCount" label="Ownership count" required render={(f) => <IntegerInput value={f.value ?? null} onValueChange={(v) => f.onChange(v as number)} onBlur={f.onBlur} min={1} max={20} />} />
+          )}
+        </FieldGrid>
+        <FieldGrid>
+          <FormField control={control} name="chassisNumber" label="Chassis no" optional render={(f) => <CodeInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} />} />
+          <FormField control={control} name="engineNumber" label="Engine no" optional render={(f) => <CodeInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} />} />
+        </FieldGrid>
+        {vehicle && (
+          <FormField control={control} name="currentRtoStatus" label="RTO status" required render={(f) => <Select value={f.value} onValueChange={f.onChange} options={RTO_STATUSES} />} />
+        )}
+      </div>
+    </ResponsiveDialog>
+  );
+}
 
-      <div className="bg-white rounded-lg border border-gray-200 p-6 mb-6">
-        <div className="flex items-start justify-between mb-4">
-          <div>
-            <h2 className="text-xl font-semibold text-gray-900">{customer.legalName}</h2>
-            {customer.tradeName && <p className="text-sm text-gray-500">{customer.tradeName}</p>}
-          </div>
-          <div className="flex gap-2">
-            <Badge text={customer.customerType} variant="neutral" />
-            <Badge text={customer.riskStatus} variant={statusVariant(customer.riskStatus)} />
-            {customer.stopSupplyFlag && <Badge text="STOP SUPPLY" variant="danger" />}
-          </div>
-        </div>
+// §10.6 Customer detail.
+export default function CustomerDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const terms = useTerms();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: customer, error, refetch: refetchCustomer, loading } = useFetch<Customer>(`/api/v1/customers/${id}`, [id], { staleAfter: DETAIL_STALE_MS });
+  const vehiclesQ = useFetch<Vehicle[]>(`/api/v1/customers/${id}/vehicles`, [id]);
+  const leadsQ = useFetch<CustomerLead[]>(`/api/v1/customers/${id}/leads`, [id]);
+  const loansQ = useFetch<LoanListItem[]>(`/api/v1/loans?customerId=${id}&pageSize=100&sortBy=createdAt&sortDir=desc`, [id]);
+  const [vehicleDialog, setVehicleDialog] = useState<{ open: boolean; vehicle: Vehicle | null }>({ open: false, vehicle: null });
+  const [loanOpen, setLoanOpen] = useState(false);
 
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
-          <div>
-            <span className="text-gray-500">Phone</span>
-            <p className="font-medium">{customer.phoneNumber ?? '-'}</p>
+  useRecordTitle(customer?.legalName);
+
+  // ?addVehicle=1 from the Create loan dialog's "Add a vehicle" link.
+  useEffect(() => {
+    if (searchParams.get('addVehicle') === '1') {
+      setVehicleDialog({ open: true, vehicle: null });
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('addVehicle'); return n; }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  if (error && !customer) {
+    return <Alert tone="danger" title="This customer didn't load" action={<Button variant="outline" size="sm" icon={RotateCw} onClick={refetchCustomer}>Retry</Button>}>{error}</Alert>;
+  }
+  if (!customer) {
+    return (
+      <div className="space-y-4" aria-busy>
+        <Skeleton className="h-8 w-72" />
+        <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-28" />)}</div>
+        <Skeleton className="h-64 w-full" />
+      </div>
+    );
+  }
+
+  const vehicles = vehiclesQ.data ?? [];
+  const leads = leadsQ.data ?? [];
+  const loans = loansQ.data ?? [];
+  const openLoans = loans.filter((l) => !['CLOSED', 'REJECTED', 'WITHDRAWN'].includes(l.loanStatus));
+  const openLoanVehicles = new Set(openLoans.map((l) => l.vehicleRegNo));
+  const rcAtLimit = customer.pendingRcCount >= customer.maxPendingRcAllowed;
+
+  const vehicleColumns: ColumnDef<Vehicle>[] = [
+    { id: 'reg', header: 'Reg no', kind: 'id', mobile: 'title', cell: (v) => <span className="id-mono font-medium">{formatRegNo(v.registrationNumber)}</span> },
+    { id: 'mmv', header: 'Make / model', mobile: 'subtitle', cell: (v) => [v.make, v.model, v.variant].filter(Boolean).join(' ') || <Empty /> },
+    { id: 'year', header: 'Year', kind: 'number', mobile: 'meta', cell: (v) => v.yearOfMfg ?? <Empty /> },
+    { id: 'owners', header: 'Owners', kind: 'number', mobile: 'meta', priority: 2, cell: (v) => v.ownershipCount },
+    { id: 'rto', header: 'RTO status', kind: 'status', mobile: 'badge', cell: (v) => <StatusBadge status={v.currentRtoStatus} inTable /> },
+    { id: 'loan', header: 'Open loan', mobile: 'meta', cell: (v) => (openLoanVehicles.has(v.registrationNumber) ? <Badge text="Open loan" variant="info" /> : <Empty />) },
+  ];
+
+  const loanColumns: ColumnDef<LoanListItem>[] = [
+    { id: 'app', header: 'Application #', kind: 'id', mobile: 'title', cell: (l) => <span className="id-mono">{l.applicationNumber}</span> },
+    { id: 'veh', header: 'Vehicle', kind: 'id', mobile: 'subtitle', cell: (l) => formatRegNo(l.vehicleRegNo) },
+    { id: 'lender', header: 'Lender', priority: 2, mobile: 'hidden', cell: (l) => l.lenderName },
+    { id: 'sanctioned', header: 'Sanctioned', kind: 'currency', mobile: 'meta', cell: (l) => (l.sanctionedAmount == null ? <Empty /> : formatINR(l.sanctionedAmount, { whole: true })) },
+    { id: 'bal', header: terms.brokerLedgerName, kind: 'currency', mobile: 'meta', cell: (l) => formatINR(l.netDisbursedAmount, { whole: true }) },
+    { id: 'status', header: 'Status', kind: 'status', mobile: 'badge', cell: (l) => <StatusBadge status={l.loanStatus} domain="loan" inTable /> },
+  ];
+
+  const leadColumns: ColumnDef<CustomerLead>[] = [
+    { id: 'name', header: 'Applicant', mobile: 'title', cell: (l) => l.applicantName },
+    { id: 'source', header: 'Source', mobile: 'subtitle', cell: (l) => humanize(l.leadSource) },
+    { id: 'vehicle', header: 'Vehicle', kind: 'id', priority: 2, mobile: 'meta', cell: (l) => (l.vehicleRegistrationNumber ? formatRegNo(l.vehicleRegistrationNumber) : <Empty />) },
+    { id: 'status', header: 'Status', kind: 'status', mobile: 'badge', cell: (l) => <StatusBadge status={l.leadStatus} domain="lead" inTable /> },
+    { id: 'created', header: 'Created', kind: 'date', mobile: 'meta', cell: (l) => formatDate(l.createdAt) },
+    { id: 'converted', header: 'Converted', kind: 'date', priority: 2, mobile: 'meta', cell: (l) => formatDate(l.convertedAt) },
+  ];
+
+  const events: ActivityEvent[] = [
+    ...leads.filter((l) => l.convertedAt).map((l) => ({ id: `lead-${l.leadId}`, at: l.convertedAt!, icon: UserCheck, text: `Lead from ${l.applicantName} converted` })),
+  ];
+
+  const createLoan = (
+    <Button icon={FilePlus2} onClick={() => setLoanOpen(true)}>Create loan</Button>
+  );
+
+  return (
+    <>
+      <RecordHeader
+        title={customer.legalName}
+        badges={
+          <>
+            <Badge text={humanize(customer.customerType)} />
+            <StatusBadge status={customer.riskStatus} />
+            {customer.stopSupplyFlag && <StatusBadge status="STOP_SUPPLY" />}
+          </>
+        }
+        meta={
+          <>
+            {customer.tradeName && <><span>{customer.tradeName}</span><MetaSep /></>}
+            {customer.phoneNumber ? <a href={`tel:${customer.phoneNumber}`} className="num text-foreground hover:underline">{formatPhone(customer.phoneNumber)}</a> : <span>No phone</span>}
+          </>
+        }
+        actions={
+          <>
+            <Tooltip content="Refresh">
+              <Button variant="ghost" size="icon" aria-label="Refresh customer" loading={loading} onClick={() => { void refetchCustomer(); void vehiclesQ.refetch(); void loansQ.refetch(); }}><RotateCw /></Button>
+            </Tooltip>
+            {createLoan}
+          </>
+        }
+      />
+      {customer.stopSupplyFlag && (
+        <Alert tone="danger" title="Stop supply" className="mb-4">This customer is on stop supply. New loans may be refused until it's lifted.</Alert>
+      )}
+
+      <div className="mb-5">
+        <MetricStrip columns={4}>
+          <div className="rounded-lg border bg-surface p-card shadow-xs dark:shadow-none">
+            <UtilizationMeter used={customer.currentUtilization} ceiling={customer.assignedCeiling} />
+            <p className="num mt-2 text-caption text-success">Headroom {formatINR(customer.availableSubLimit, { whole: true })}</p>
           </div>
-          <div>
-            <span className="text-gray-500">CIBIL Score</span>
-            <p className="font-medium">{customer.cibilScore ?? '-'} {customer.cibilTier && <Badge text={customer.cibilTier} variant={statusVariant(customer.cibilTier)} />}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Pending RCs</span>
-            <p className="font-medium">{customer.pendingRcCount} / {customer.maxPendingRcAllowed}</p>
-          </div>
-          <div>
-            <span className="text-gray-500">Sub-Limit</span>
-            <p className="font-medium">{formatCurrency(customer.currentUtilization)} / {formatCurrency(customer.assignedCeiling)}</p>
-            <div className="mt-1 h-2 bg-gray-200 rounded-full overflow-hidden w-full max-w-[200px]">
-              <div
-                className={`h-full rounded-full ${pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                style={{ width: `${Math.min(pct, 100)}%` }}
+          <MetricCard
+            label="Pending RCs"
+            value={`${customer.pendingRcCount} of ${customer.maxPendingRcAllowed}`}
+            context={rcAtLimit ? 'At the pending RC limit' : undefined}
+            contextTone={rcAtLimit ? 'warning' : undefined}
+          />
+          <MetricCard
+            label="CIBIL"
+            value={customer.cibilScore ?? '—'}
+            context={customer.cibilTier ? <StatusBadge status={customer.cibilTier} /> : 'Not checked'}
+          />
+          <MetricCard
+            label="Open loans"
+            value={openLoans.length}
+            context={openLoans.length ? `${formatINR(openLoans.reduce((s, l) => s + (l.sanctionedAmount ?? l.requestedAmount), 0), { whole: true })} total` : undefined}
+          />
+        </MetricStrip>
+      </div>
+
+      <Tabs
+        tabs={[
+          {
+            value: 'vehicles',
+            label: 'Vehicles',
+            count: vehicles.length,
+            content: (
+              <DataTable
+                label="Vehicles"
+                columns={vehicleColumns}
+                rows={vehiclesQ.data}
+                getRowId={(v) => v.vehicleId}
+                loading={vehiclesQ.loading}
+                error={vehiclesQ.error}
+                onRetry={vehiclesQ.refetch}
+                rowActions={(v) => [{ label: 'Edit vehicle', icon: Edit3, onSelect: () => setVehicleDialog({ open: true, vehicle: v }) }]}
+                empty={{ title: 'No vehicles yet', description: 'Add the vehicles this customer owns before creating loans.', action: <Button icon={Plus} onClick={() => setVehicleDialog({ open: true, vehicle: null })}>Add vehicle</Button> }}
               />
-            </div>
-          </div>
-        </div>
-      </div>
+            ),
+          },
+          {
+            value: 'loans',
+            label: 'Loans',
+            count: loansQ.data ? loans.length : null,
+            content: (
+              <DataTable
+                label="Loans"
+                columns={loanColumns}
+                rows={loansQ.data}
+                getRowId={(l) => l.loanId}
+                loading={loansQ.loading}
+                error={loansQ.error}
+                onRetry={loansQ.refetch}
+                rowHref={(l) => `/loans/${l.loanId}`}
+                empty={{ title: 'No loans yet', action: createLoan }}
+              />
+            ),
+          },
+          {
+            value: 'leads',
+            label: 'Leads',
+            count: leads.length,
+            content: (
+              <DataTable
+                label="Leads"
+                columns={leadColumns}
+                rows={leadsQ.data}
+                getRowId={(l) => l.leadId}
+                loading={leadsQ.loading}
+                error={leadsQ.error}
+                onRetry={leadsQ.refetch}
+                rowHref={(l) => `/leads/${l.leadId}`}
+                empty={{ title: 'No leads', description: 'Leads converted to this customer show up here.' }}
+              />
+            ),
+          },
+          { value: 'activity', label: 'Activity', content: <Card><ActivityThread events={events} /></Card> },
+        ]}
+        toolbar={<Button variant="outline" size="sm" icon={Plus} onClick={() => setVehicleDialog({ open: true, vehicle: null })} className="hidden md:inline-flex">Add vehicle</Button>}
+      />
 
-      <div className="flex items-center justify-between mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">Vehicles</h3>
-        <button onClick={openAdd} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Vehicle
-        </button>
-      </div>
+      <StickyActionDock>
+        {createLoan}
+        <Button variant="outline" icon={Plus} onClick={() => setVehicleDialog({ open: true, vehicle: null })}>Add vehicle</Button>
+      </StickyActionDock>
 
-      {vehLoading ? (
-        <div className="space-y-3">{[...Array(3)].map((_, i) => <div key={i} className="h-12 bg-gray-50 rounded animate-pulse" />)}</div>
-      ) : !vehicles || vehicles.length === 0 ? (
-        <div className="text-center text-gray-500 py-8 bg-white border border-gray-200 rounded-lg">No vehicles registered for this customer</div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Reg. Number</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Make / Model</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Year</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Chassis No.</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Engine No.</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Ownership</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">RTO Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {vehicles.map((v) => (
-                <tr key={v.vehicleId} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{v.registrationNumber}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{[v.make, v.model, v.variant].filter(Boolean).join(' ') || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{v.yearOfMfg ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 font-mono">{v.chassisNumber ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-500 font-mono">{v.engineNumber ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{v.ownershipCount}</td>
-                  <td className="px-4 py-3 text-sm"><Badge text={v.currentRtoStatus} variant={statusVariant(v.currentRtoStatus)} /></td>
-                  <td className="px-4 py-3 text-sm">
-                    <button onClick={() => openEdit(v)} className="text-indigo-600 hover:text-indigo-800 font-medium">Edit</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p className="mt-2 text-xs text-gray-400">{vehicles?.length ?? 0} vehicle{(vehicles?.length ?? 0) !== 1 ? 's' : ''}</p>
-
-      {/* Lead History Section */}
-      <h3 className="text-lg font-semibold text-gray-900 mt-8 mb-4">Lead History</h3>
-      {(leads ?? []).length === 0 ? (
-        <div className="text-center text-gray-500 py-8 bg-white border border-gray-200 rounded-lg">No linked leads for this customer</div>
-      ) : (
-        <div className="overflow-x-auto rounded-lg border border-gray-200">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Applicant Name</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Source</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Created</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Converted</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Vehicle</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Status</th>
-                <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase">Actions</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {(leads ?? []).map((lead) => (
-                <tr key={lead.leadId} className="hover:bg-gray-50 transition-colors">
-                  <td className="px-4 py-3 text-sm font-medium text-gray-900">{lead.applicantName}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{lead.leadSource}</td>
-                  <td className="px-4 py-3 text-sm"><Badge text={lead.leadStatus} variant={statusVariant(lead.leadStatus)} /></td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{new Date(lead.createdAt).toLocaleDateString('en-IN')}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{lead.convertedAt ? new Date(lead.convertedAt).toLocaleDateString('en-IN') : '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">{lead.vehicleRegistrationNumber ?? '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-700">
-                    {lead.vehicleAction && (
-                      <span className={`inline-block px-2 py-1 text-xs font-medium rounded ${
-                        lead.vehicleAction === 'CURRENT' ? 'bg-green-100 text-green-800' :
-                        lead.vehicleAction === 'TRANSFERRED' ? 'bg-yellow-100 text-yellow-800' :
-                        'bg-gray-100 text-gray-800'
-                      }`}>
-                        {lead.vehicleAction}
-                      </span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3 text-sm">
-                    <button
-                      onClick={() => navigate(`/leads/${lead.leadId}`)}
-                      className="text-indigo-600 hover:text-indigo-800 font-medium"
-                    >
-                      View
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-      <p className="mt-2 text-xs text-gray-400">{leads?.length ?? 0} lead{(leads?.length ?? 0) !== 1 ? 's' : ''}</p>
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editVehicle ? 'Edit Vehicle' : 'Add Vehicle'}>
-        <form onSubmit={handleSubmit}>
-          <FormField label="Registration Number" value={form.registrationNumber} onChange={(v) => setForm({ ...form, registrationNumber: v })} required placeholder="e.g. GJ05BX6637" />
-          <div className="grid grid-cols-3 gap-3">
-            <FormField label="Make" value={form.make} onChange={(v) => setForm({ ...form, make: v })} placeholder="e.g. Tata" />
-            <FormField label="Model" value={form.model} onChange={(v) => setForm({ ...form, model: v })} placeholder="e.g. Prima 2830.K" />
-            <FormField label="Variant" value={form.variant} onChange={(v) => setForm({ ...form, variant: v })} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Year of Mfg" type="number" value={form.yearOfMfg} onChange={(v) => setForm({ ...form, yearOfMfg: v })} />
-            <FormField label="Ownership Count" type="number" value={form.ownershipCount} onChange={(v) => setForm({ ...form, ownershipCount: v })} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Chassis Number" value={form.chassisNumber} onChange={(v) => setForm({ ...form, chassisNumber: v })} />
-            <FormField label="Engine Number" value={form.engineNumber} onChange={(v) => setForm({ ...form, engineNumber: v })} />
-          </div>
-          <FormField label="RTO Status" value={form.currentRtoStatus} onChange={(v) => setForm({ ...form, currentRtoStatus: v })} options={[
-            { value: 'CLEAN', label: 'Clean' },
-            { value: 'HYPOTHECATED', label: 'Hypothecated' },
-            { value: 'RC_PENDING', label: 'RC Pending' },
-            { value: 'BLACKLISTED', label: 'Blacklisted' },
-          ]} />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">
-              {submitting ? 'Saving...' : editVehicle ? 'Update' : 'Add'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+      <VehicleDialog
+        open={vehicleDialog.open}
+        onOpenChange={(o) => setVehicleDialog((d) => ({ ...d, open: o }))}
+        customerId={customer.customerId}
+        vehicle={vehicleDialog.vehicle}
+        onSaved={() => void vehiclesQ.refetch()}
+      />
+      <CreateLoanDialog
+        open={loanOpen}
+        onOpenChange={setLoanOpen}
+        customer={{ customerId: customer.customerId, legalName: customer.legalName }}
+        onCreated={() => { void loansQ.refetch(); void refetchCustomer(); }}
+      />
+    </>
   );
 }

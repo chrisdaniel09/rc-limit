@@ -52,6 +52,8 @@ try
     builder.Services.AddOpenApi(options =>
     {
         options.AddDocumentTransformer<RCLimit.WebApi.BearerSecuritySchemeTransformer>();
+        if (builder.Environment.IsDevelopment())
+            options.AddDocumentTransformer<RCLimit.WebApi.DevelopmentHeadersTransformer>();
     });
 
     builder.Services.AddExceptionHandler<GlobalExceptionHandler>();

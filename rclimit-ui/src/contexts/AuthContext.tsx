@@ -72,8 +72,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   if (isInitializing) {
     return (
-      <div className="flex h-screen items-center justify-center bg-gray-50">
-        <div className="text-sm font-medium text-gray-500">Loading...</div>
+      <div className="flex min-h-dvh items-center justify-center bg-background" role="status" aria-live="polite">
+        <div className="size-6 animate-spin rounded-full border-2 border-muted border-t-primary" aria-hidden />
+        <span className="sr-only">Loading</span>
       </div>
     );
   }

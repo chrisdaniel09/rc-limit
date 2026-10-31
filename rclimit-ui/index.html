@@ -1,9 +1,24 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-IN">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>RCLimit</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>RC Limit</title>
+    <!-- Theme boot (docs/ui_ux_specification.md §3.7): apply the cached tenant theme, color mode and density before React. -->
+    <script>
+      (function () {
+        try {
+          var s = localStorage, h = location.host, r = document.documentElement;
+          var css = s.getItem('rcl.themeCss.' + h);
+          if (css) { var el = document.createElement('style'); el.id = 'tenant-theme'; el.textContent = css; document.head.appendChild(el); }
+          var t = JSON.parse(s.getItem('rcl.theme.' + h) || 'null'), d = (t && t.defaults) || {};
+          var m = s.getItem('rcl.colorMode') || d.colorMode || 'system';
+          if (m === 'dark' || (m === 'system' && matchMedia('(prefers-color-scheme: dark)').matches)) r.classList.add('dark');
+          r.dataset.density = s.getItem('rcl.density') || d.density || 'comfortable';
+          if (t && t.brand && t.brand.name) document.title = t.brand.name;
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

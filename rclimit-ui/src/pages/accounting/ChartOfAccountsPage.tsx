@@ -1,10 +1,19 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
+import { Fragment, useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { apiPost } from '@/api/client';
+import { useClientFilter } from '@/hooks/useClientFilter';
+import { useFetch } from '@/hooks/useFetch';
+import { FilterBar } from '@/components/FilterBar';
+import StatusBadge from '@/components/StatusBadge';
+import { CodeInput } from '@/components/inputs';
+import { Button } from '@/components/ui/button';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Card, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
 
 interface LedgerAccount {
   accountId: string;
@@ -16,75 +25,110 @@ interface LedgerAccount {
 }
 
 const ACCOUNT_TYPES = [
-  { value: 'ASSET', label: 'Asset' },
-  { value: 'LIABILITY', label: 'Liability' },
+  { value: 'ASSET', label: 'Assets' },
+  { value: 'LIABILITY', label: 'Liabilities' },
   { value: 'EQUITY', label: 'Equity' },
   { value: 'INCOME', label: 'Income' },
-  { value: 'EXPENSE', label: 'Expense' },
+  { value: 'EXPENSE', label: 'Expenses' },
 ];
 
-const typeVariant = (t: string): 'success' | 'info' | 'warning' | 'danger' | 'neutral' => {
-  switch (t) {
-    case 'ASSET': return 'success';
-    case 'LIABILITY': return 'danger';
-    case 'EQUITY': return 'info';
-    case 'INCOME': return 'success';
-    case 'EXPENSE': return 'warning';
-    default: return 'neutral';
-  }
-};
+// Indent by code depth: 1000 → 0, 1100 → 1, 1110 → 2 (trailing zeros), or dotted codes 1.1.2.
+function depthOf(code: string): number {
+  if (code.includes('.')) return code.split('.').length - 1;
+  const trimmed = code.replace(/0+$/, '');
+  return Math.max(0, Math.min(3, trimmed.length - 1));
+}
 
+// §10.13 Chart of accounts as an indented tree grouped by account type.
 export default function ChartOfAccountsPage() {
   const { data, loading, refetch } = useFetch<LedgerAccount[]>('/api/v1/accounting/accounts');
-  const [showModal, setShowModal] = useState(false);
+  const list = useClientFilter(data, (a) => [a.accountCode, a.accountName]);
+  const [open, setOpen] = useState(false);
   const [form, setForm] = useState({ accountCode: '', accountName: '', accountType: 'ASSET' });
-  const [submitting, setSubmitting] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-  const columns: Column<LedgerAccount>[] = [
-    { key: 'accountCode', header: 'Code' },
-    { key: 'accountName', header: 'Account Name' },
-    { key: 'accountType', header: 'Type', render: (a) => <Badge text={a.accountType} variant={typeVariant(a.accountType)} /> },
-    { key: 'currency', header: 'Currency' },
-    { key: 'isActive', header: 'Status', render: (a) => <Badge text={a.isActive ? 'Active' : 'Inactive'} variant={a.isActive ? 'success' : 'neutral'} /> },
-  ];
+  useEffect(() => {
+    if (open) {
+      setForm({ accountCode: '', accountName: '', accountType: 'ASSET' });
+      setServerError(null);
+    }
+  }, [open]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
+  const save = async () => {
+    if (!form.accountCode || !form.accountName.trim()) {
+      setServerError('Enter a code and a name.');
+      return;
+    }
+    setSaving(true);
     try {
       await apiPost('/api/v1/accounting/accounts', form);
-      setShowModal(false);
-      setForm({ accountCode: '', accountName: '', accountType: 'ASSET' });
-      refetch();
-    } catch {
-      // handle
+      notifySuccess('Account added');
+      setOpen(false);
+      void refetch();
+    } catch (err) {
+      setServerError(errorMessage(err, "The account wasn't added."));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
+  const groups = ACCOUNT_TYPES.map((t) => ({
+    ...t,
+    accounts: (list.filtered ?? []).filter((a) => a.accountType === t.value).sort((a, b) => a.accountCode.localeCompare(b.accountCode)),
+  })).filter((g) => g.accounts.length > 0);
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">Chart of Accounts</h2>
-        <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Account
-        </button>
-      </div>
-
-      <DataTable columns={columns} data={data ?? []} loading={loading} searchPlaceholder="Search accounts..." />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Ledger Account">
-        <form onSubmit={handleSubmit}>
-          <FormField label="Account Code" value={form.accountCode} onChange={(v) => setForm({ ...form, accountCode: v })} required placeholder="e.g. 1010-CASH" />
-          <FormField label="Account Name" value={form.accountName} onChange={(v) => setForm({ ...form, accountName: v })} required placeholder="e.g. Master Bank Settlement Account" />
-          <FormField label="Account Type" value={form.accountType} onChange={(v) => setForm({ ...form, accountType: v })} required options={ACCOUNT_TYPES} />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+    <>
+      <PageHeader title="Chart of accounts" count={data?.length} actions={<Button icon={Plus} data-new-record onClick={() => setOpen(true)}>Add account</Button>} />
+      <FilterBar searchValue={list.search} onSearchChange={list.setSearch} searchPlaceholder="Search code or name…" />
+      {loading && !data ? <Skeleton className="h-80 w-full" /> : groups.length === 0 ? (
+        <EmptyState variant={list.isFiltered ? 'no-results' : 'no-data'} title={list.isFiltered ? 'No accounts match' : 'No accounts yet'} />
+      ) : (
+        <Card flush>
+          <table className="w-full text-sm">
+            <thead className="bg-muted text-left text-label text-muted-foreground">
+              <tr>
+                <th scope="col" className="h-10 px-cell font-medium">Account</th>
+                <th scope="col" className="px-cell font-medium">Currency</th>
+                <th scope="col" className="px-cell font-medium">Status</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y">
+              {groups.map((g) => (
+                <Fragment key={g.value}>
+                  <tr className="bg-muted/40"><th scope="rowgroup" colSpan={3} className="h-9 px-cell text-left text-subheading">{g.label}</th></tr>
+                  {g.accounts.map((a) => (
+                    <tr key={a.accountId} className="h-row">
+                      <td className="px-cell" style={{ paddingLeft: `calc(var(--cell-px) + ${depthOf(a.accountCode) * 20}px)` }}>
+                        <span className="id-mono mr-3 text-muted-foreground">{a.accountCode}</span>
+                        <span className="text-foreground">{a.accountName}</span>
+                      </td>
+                      <td className="px-cell text-muted-foreground">{a.currency}</td>
+                      <td className="px-cell"><StatusBadge status={a.isActive ? 'ACTIVE' : 'INACTIVE'} inTable /></td>
+                    </tr>
+                  ))}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </Card>
+      )}
+      <ResponsiveDialog
+        open={open}
+        onOpenChange={setOpen}
+        variant="sheet"
+        title="Add account"
+        error={serverError}
+        onSubmit={() => void save()}
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" loading={saving} loadingText="Adding…">Add account</Button></>}
+      >
+        <div className="space-y-4">
+          <Field label="Code" required><CodeInput value={form.accountCode} onValueChange={(v) => setForm((f) => ({ ...f, accountCode: v }))} placeholder="1100" autoFocus /></Field>
+          <Field label="Name" required><Input value={form.accountName} onChange={(e) => setForm((f) => ({ ...f, accountName: e.target.value }))} /></Field>
+          <Field label="Type" required><Select value={form.accountType} onValueChange={(v) => setForm((f) => ({ ...f, accountType: v }))} options={ACCOUNT_TYPES.map((t) => ({ value: t.value, label: t.label.replace(/s$/, '') }))} /></Field>
+        </div>
+      </ResponsiveDialog>
+    </>
   );
 }

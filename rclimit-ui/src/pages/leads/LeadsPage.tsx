@@ -1,252 +1,268 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import PhoneInput from '../../components/PhoneInput';
-import { toPhoneNumber } from '../../utils/phone';
-import { useListState } from '../../hooks/useListState';
-import Pagination from '../../components/Pagination';
-import ProductFieldInput from './ProductFieldInput';
-import { toProductDetails, type ProductType } from './productTypes';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Columns2, MessageCircle, Phone, Plus, UserPlus } from 'lucide-react';
+import { apiPut } from '@/api/client';
+import { useAuth } from '@/hooks/useAuth';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { BulkBar, FilterBar, SavedViews, type FilterDef } from '@/components/FilterBar';
+import Pagination from '@/components/Pagination';
+import StatusBadge from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Segmented, Switch } from '@/components/ui/choice';
+import { Combobox } from '@/components/ui/combobox';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Field } from '@/components/ui/field';
+import { Empty } from '@/components/ui/feedback';
+import { notifyError, notifySuccess } from '@/components/ui/toast';
+import { Tooltip } from '@/components/ui/tooltip';
+import { Avatar } from '@/layouts/Topbar';
+import { PageHeader } from '@/layouts/templates';
+import { SplitView, useSplitPreference } from '@/layouts/SplitView';
+import { formatDateTime, formatPhone, formatRelative } from '@/lib/format';
+import AddLeadDialog from './AddLeadDialog';
+import { LeadDetailView } from './LeadDetailPage';
+import type { ProductType } from './productTypes';
+import { LEAD_SOURCES, LEAD_STATUS_OPTIONS, UNASSIGNED, sourceLabel, type LeadListItem, type StaffUser } from './leadShared';
 
-interface Lead {
-  leadId: string;
-  applicantName: string;
-  whatsappPhoneNumber: string;
-  contactPhone: string | null;
-  productTypeCode: string;
-  referenceNumber: string | null;
-  leadSource: string;
-  referredByUserId: string | null;
-  referredByUserName: string | null;
-  leadStatus: string;
-  notes: string | null;
-  assignedToUserId: string | null;
-  assignedToUserName: string | null;
-  convertedCustomerId: string | null;
-  createdAt: string;
-}
+const INITIAL_FILTERS = { assignedToMe: '', leadStatus: '', productTypeCode: '', leadSource: '', assignedTo: '', createdFrom: '', createdTo: '' };
 
-interface StaffUser {
-  userId: string;
-  fullName: string | null;
-  email: string | null;
-}
-
-const LEAD_SOURCES = [
-  { value: 'WHATSAPP', label: 'WhatsApp' },
-  { value: 'INSTAGRAM', label: 'Instagram' },
-  { value: 'CALL_IN', label: 'Call-In' },
-  { value: 'WALK_IN', label: 'Walk-In' },
-  { value: 'REFERRAL', label: 'Referral' },
-  { value: 'WEBSITE', label: 'Website' },
-  { value: 'OTHER', label: 'Other' },
-];
-
-const LEAD_STATUS_OPTIONS = [
-  { value: 'NEW', label: 'New' },
-  { value: 'IN_PROGRESS', label: 'In Progress' },
-  { value: 'QUALIFIED', label: 'Qualified' },
-  { value: 'CONVERTED', label: 'Converted' },
-  { value: 'REJECTED', label: 'Rejected' },
-];
-
-const emptyForm = {
-  leadSource: 'WALK_IN',
-  referredByUserId: '',
-  applicantName: '',
-  whatsappPhoneNumber: '',
-  contactPhone: '',
-  productTypeCode: '',
-  notes: '',
-};
-
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
+// §10.3 Leads list; split view on by default at ≥ 1280 px (§15-8).
 export default function LeadsPage() {
   const navigate = useNavigate();
-  const list = useListState({
-    storageKey: 'leads.pageSize',
-    defaultSortBy: 'createdAt',
-    defaultSortDir: 'desc',
-    initialFilters: { assignedToMe: '', leadStatus: '' },
-  });
-  const scope = list.filters.assignedToMe === 'true' ? 'mine' : 'all';
-  const { data, meta, loading, refetch } = useFetch<Lead[]>(`/api/v1/leads?${list.query}`);
+  const { hasRight } = useAuth();
+  const canEdit = hasRight('leads.edit');
+  const list = useListState({ storageKey: 'leads.pageSize', defaultSortBy: 'createdAt', defaultSortDir: 'desc', initialFilters: INITIAL_FILTERS });
+  const { data, meta, loading, error, refetch } = useFetch<LeadListItem[]>(`/api/v1/leads?${list.query}`, [], { staleAfter: LIST_STALE_MS });
   const { data: users } = useFetch<StaffUser[]>('/api/v1/users/lookup');
   const { data: productTypes } = useFetch<ProductType[]>('/api/v1/lead-product-types');
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [productDetails, setProductDetails] = useState<Record<string, string>>({});
-  const [submitting, setSubmitting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [addOpen, setAddOpen] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
+  const [assignee, setAssignee] = useState('');
+  const [assigning, setAssigning] = useState(false);
+  const split = useSplitPreference('leads', true);
+  const scope = list.filters.assignedToMe === 'true' ? 'mine' : 'all';
 
-  const activeProductTypes = (productTypes ?? []).filter((p) => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
-  const selectedProduct = activeProductTypes.find((p) => p.code === form.productTypeCode);
-  const requirementLabel = (code: string) => (productTypes ?? []).find((p) => p.code === code)?.label ?? code;
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setAddOpen(true);
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('new'); return n; }, { replace: true });
+    }
+    // Dashboard link: /leads?scope=mine.
+    if (searchParams.get('scope') === 'mine') {
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('scope'); n.set('assignedToMe', 'true'); return n; }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
 
-  const columns: Column<Lead>[] = [
-    { key: 'applicantName', header: 'Applicant', sortKey: 'applicantName' },
-    { key: 'productTypeCode', header: 'Financial Requirement', render: (l) => requirementLabel(l.productTypeCode) },
-    { key: 'referenceNumber', header: 'Reference', render: (l) => l.referenceNumber ?? '-' },
-    { key: 'leadSource', header: 'Source', sortKey: 'leadSource', render: (l) => <Badge text={l.leadSource} variant="neutral" /> },
+  // Clear the selection when the view changes, so bulk actions never apply to rows that aren't shown.
+  useEffect(() => setSelected(new Set()), [list.viewKey, list.page]);
+
+  const requirementLabel = (code: string) => productTypes?.find((p) => p.code === code)?.label ?? code;
+  const userOptions = (users ?? []).map((u) => ({ value: u.userId, label: u.fullName || u.email || u.userId, secondary: u.email ?? undefined }));
+
+  const filters: FilterDef[] = useMemo(() => [
+    { key: 'leadStatus', label: 'Status', type: 'multi', options: LEAD_STATUS_OPTIONS },
+    { key: 'productTypeCode', label: 'Requirement', type: 'single', options: (productTypes ?? []).map((p) => ({ value: p.code, label: p.label })) },
+    { key: 'leadSource', label: 'Source', type: 'multi', options: LEAD_SOURCES },
+    { key: 'assignedTo', label: 'Assigned to', type: 'combobox', options: [{ value: UNASSIGNED, label: 'Unassigned' }, ...userOptions] },
+    { key: 'created', label: 'Created', type: 'dateRange', from: 'createdFrom', to: 'createdTo' },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [productTypes, users]);
+
+  const columns: ColumnDef<LeadListItem>[] = [
+    {
+      id: 'applicant', header: 'Applicant', sortKey: 'applicantName', mobile: 'title',
+      cell: (l) => (
+        <span className="block max-w-56">
+          <span className="block truncate">{l.applicantName}</span>
+          <span className="num block truncate text-caption font-normal text-muted-foreground">{formatPhone(l.whatsappPhoneNumber)}</span>
+        </span>
+      ),
+    },
+    { id: 'requirement', header: 'Requirement', mobile: 'subtitle', cell: (l) => requirementLabel(l.productTypeCode) },
+    { id: 'reference', header: 'Reference', kind: 'id', priority: 3, hideable: true, mobile: 'hidden', cell: (l) => l.referenceNumber ?? <Empty /> },
+    { id: 'source', header: 'Source', sortKey: 'leadSource', priority: 2, hideable: true, mobile: 'subtitle', cell: (l) => sourceLabel(l.leadSource) },
     // Not sortable: the name is resolved from the Identity module after paging, so the database cannot order by it.
-    { key: 'assignedToUserName', header: 'Assigned To', render: (l) => l.assignedToUserName ?? '-' },
-    { key: 'leadStatus', header: 'Status', sortKey: 'leadStatus', render: (l) => <Badge text={l.leadStatus} variant={statusVariant(l.leadStatus)} /> },
-    { key: 'createdAt', header: 'Created', sortKey: 'createdAt', render: (l) => formatDate(l.createdAt) },
+    {
+      id: 'assigned', header: 'Assigned to', priority: 2, hideable: true, mobile: 'meta',
+      cell: (l) => (l.assignedToUserName ? (
+        <span className="inline-flex items-center gap-2"><Avatar name={l.assignedToUserName} size="sm" />{l.assignedToUserName}</span>
+      ) : <Empty>Unassigned</Empty>),
+    },
+    {
+      id: 'checks', header: 'Checks', priority: 3, hideable: true, mobile: 'meta',
+      cell: (l) => (l.cibilCheckStatus === undefined && l.rcCheckStatus === undefined ? <Empty /> : (
+        <span className="inline-flex gap-1">
+          <Tooltip content="CIBIL check"><span><StatusBadge status={l.cibilCheckStatus} domain="check" inTable /></span></Tooltip>
+          <Tooltip content="RC check"><span><StatusBadge status={l.rcCheckStatus} domain="check" inTable /></span></Tooltip>
+        </span>
+      )),
+    },
+    { id: 'status', header: 'Status', sortKey: 'leadStatus', kind: 'status', mobile: 'badge', cell: (l) => <StatusBadge status={l.leadStatus} domain="lead" inTable /> },
+    {
+      id: 'created', header: 'Created', sortKey: 'createdAt', kind: 'date', priority: 2, mobile: 'meta',
+      cell: (l) => <time dateTime={l.createdAt} title={formatDateTime(l.createdAt)}>{formatRelative(l.createdAt)}</time>,
+    },
   ];
 
-  const openModal = () => {
-    setForm({ ...emptyForm, productTypeCode: activeProductTypes[0]?.code ?? '' });
-    setProductDetails({});
-    setShowModal(true);
+  const visibleColumns = split.enabled ? columns.filter((c) => ['applicant', 'requirement', 'status'].includes(c.id)) : columns;
+
+  const bulkAssign = async () => {
+    setAssigning(true);
+    const ids = [...selected];
+    const results = await Promise.allSettled(ids.map((id) => apiPut(`/api/v1/leads/${id}/assign`, { assigneeUserId: assignee || null })));
+    const failed = results.filter((r) => r.status === 'rejected');
+    setAssigning(false);
+    setAssignOpen(false);
+    setSelected(new Set());
+    void refetch();
+    if (failed.length === 0) notifySuccess(`${ids.length} ${ids.length === 1 ? 'lead' : 'leads'} assigned`);
+    else notifyError((failed[0] as PromiseRejectedResult).reason, `${failed.length} of ${ids.length} leads weren't assigned`);
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await apiPost('/api/v1/leads', {
-        leadSource: form.leadSource,
-        referredByUserId: form.referredByUserId || null,
-        applicantName: form.applicantName,
-        whatsappPhoneNumber: toPhoneNumber(form.whatsappPhoneNumber),
-        contactPhone: toPhoneNumber(form.contactPhone),
-        productTypeCode: form.productTypeCode,
-        productDetails: toProductDetails(selectedProduct?.fieldSchema ?? [], productDetails),
-        notes: form.notes || null,
-      });
-      setShowModal(false);
-      // Newest leads sort first, so show page 1 where the new lead appears. Changing the page refetches on its own.
-      if (list.page === 1) refetch();
-      else list.setPage(1);
-    } catch (err) {
-      console.error('Failed to create lead:', err);
-      alert(err instanceof Error && err.message ? err.message : 'Failed to create lead. Please try again.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const scopeControl = (
+    <Segmented
+      aria-label="Which leads"
+      value={scope}
+      onValueChange={(v) => list.updateFilter('assignedToMe', v === 'mine' ? 'true' : '')}
+      options={[{ value: 'all', label: 'All' }, { value: 'mine', label: 'Assigned to me' }]}
+    />
+  );
 
-  const userOptions = users?.map((u) => ({
-    value: u.userId,
-    label: u.fullName || u.email || u.userId,
-  })) ?? [];
+  const table = (
+    <>
+      <FilterBar
+        searchValue={list.searchInput}
+        onSearchChange={list.setSearchInput}
+        searchPlaceholder="Search applicant, phone or registration…"
+        filters={filters}
+        values={list.filters}
+        onChange={(c) => list.setFilters(c as Partial<typeof INITIAL_FILTERS>)}
+        onClearAll={list.clearFilters}
+        resultCount={meta?.totalCount}
+        resultLabel="leads"
+        savedViews={!split.enabled && (
+          <SavedViews
+            storageKey="leads"
+            defaults={[
+              { id: 'my-open', name: 'My open leads', filters: { assignedToMe: 'true', leadStatus: 'NEW,IN_PROGRESS,QUALIFIED' } },
+              { id: 'unassigned', name: 'Unassigned', filters: { assignedTo: UNASSIGNED } },
+            ]}
+            current={{ q: list.search, sort: list.sortBy, dir: list.sortDir, filters: list.filters }}
+            onApply={(v) => list.applyView({ q: v.q, sort: v.sort, dir: v.dir, filters: v.filters as Partial<typeof INITIAL_FILTERS> })}
+          />
+        )}
+      />
+      <DataTable
+        label="Leads"
+        columns={visibleColumns}
+        rows={data}
+        getRowId={(l) => l.leadId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        rowHref={(l) => `/leads/${l.leadId}`}
+        onRowClick={split.enabled ? (l) => list.setSelectedId(l.leadId) : undefined}
+        onMove={split.enabled ? (l) => list.setSelectedId(l.leadId) : undefined}
+        selectedId={split.enabled ? list.selectedId : undefined}
+        sort={{ sortBy: list.sortBy, sortDir: list.sortDir, onSort: list.updateSort, onSortChange: list.setSort }}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clearFilters}
+        columnsKey={split.enabled ? undefined : 'leads'}
+        accumulate={{ page: list.page, viewKey: list.viewKey }}
+        selection={canEdit && !split.enabled ? { selected, onChange: setSelected } : undefined}
+        bulkBar={
+          <BulkBar count={selected.size} onClear={() => setSelected(new Set())}>
+            <Button size="sm" variant="outline" icon={UserPlus} onClick={() => { setAssignee(''); setAssignOpen(true); }}>Assign to…</Button>
+          </BulkBar>
+        }
+        mobileActions={(l) => (
+          <>
+            <Button variant="outline" size="sm" icon={Phone} asChild><a href={`tel:${l.contactPhone ?? l.whatsappPhoneNumber}`}>Call</a></Button>
+            <Button variant="outline" size="sm" icon={MessageCircle} asChild>
+              <a href={`https://wa.me/${l.whatsappPhoneNumber.replace(/\D/g, '')}`} target="_blank" rel="noreferrer">WhatsApp</a>
+            </Button>
+          </>
+        )}
+        empty={{
+          title: scope === 'mine' ? 'No leads assigned to you' : 'No leads yet',
+          description: 'Leads from WhatsApp, walk-ins and referrals land here.',
+          action: <Button icon={Plus} onClick={() => setAddOpen(true)}>Add lead</Button>,
+        }}
+        footer={<Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />}
+      />
+    </>
+  );
 
-  const requirementOptions = activeProductTypes.map((p) => ({ value: p.code, label: p.label }));
+  const header = (compact: boolean) => (
+    <PageHeader
+      title="Leads"
+      count={meta?.totalCount}
+      actions={
+        <>
+          {split.available && (
+            <Switch
+              label={compact ? <Columns2 aria-label="Split view" className="size-4" /> : 'Split view'}
+              checked={split.enabled}
+              onCheckedChange={split.setPreference}
+            />
+          )}
+          <Button icon={Plus} data-new-record onClick={() => setAddOpen(true)}>Add lead</Button>
+        </>
+      }
+    >
+      {scopeControl}
+    </PageHeader>
+  );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center gap-4">
-          <h2 className="text-lg font-semibold text-gray-900">Leads</h2>
-          <div className="inline-flex rounded-md border border-gray-300 bg-white p-0.5">
-            {([['all', 'All Leads'], ['mine', 'My Leads']] as const).map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                onClick={() => list.updateFilter('assignedToMe', value === 'mine' ? 'true' : '')}
-                className={`rounded px-3 py-1.5 text-sm font-medium transition-colors ${
-                  scope === value ? 'bg-indigo-600 text-white' : 'text-gray-600 hover:bg-gray-100'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        <button onClick={openModal} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Lead
-        </button>
-      </div>
+    <>
+      {split.enabled ? (
+        <SplitView
+          storageKey="leads"
+          onClose={() => list.setSelectedId(null)}
+          fullPageHref={list.selectedId ? `/leads/${list.selectedId}` : null}
+          list={<>{header(true)}{table}</>}
+          detail={list.selectedId ? <LeadDetailView leadId={list.selectedId} embedded onChanged={() => void refetch()} /> : null}
+        />
+      ) : (
+        <>{header(false)}{table}</>
+      )}
 
-      <div className="mb-4">
-        <select
-          value={list.filters.leadStatus}
-          onChange={(e) => list.updateFilter('leadStatus', e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-          aria-label="Filter by lead status"
-        >
-          <option value="">All statuses</option>
-          {LEAD_STATUS_OPTIONS.map((opt) => (
-            <option key={opt.value} value={opt.value}>{opt.label}</option>
-          ))}
-        </select>
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data ?? []}
-        loading={loading}
-        searchPlaceholder="Search applicant, phone or registration..."
-        onRowClick={(lead) => navigate(`/leads/${lead.leadId}`)}
-        server={{
-          searchValue: list.searchInput,
-          onSearchChange: list.setSearchInput,
-          sortBy: list.sortBy,
-          sortDir: list.sortDir,
-          onSort: list.updateSort,
-          footer: (
-            <Pagination
-              meta={meta}
-              pageSize={list.pageSize}
-              onPageChange={list.setPage}
-              onPageSizeChange={list.setPageSize}
-            />
-          ),
+      <AddLeadDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        productTypes={productTypes ?? []}
+        users={users ?? []}
+        onCreated={(id) => {
+          if (id && split.enabled) {
+            list.setSelectedId(id);
+            void refetch();
+          } else if (id) navigate(`/leads/${id}`);
+          else void refetch();
         }}
       />
 
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lead">
-        <form onSubmit={handleSubmit}>
-          <FormField
-            label="Financial Requirement"
-            value={form.productTypeCode}
-            onChange={(v) => {
-              setForm({ ...form, productTypeCode: v });
-              setProductDetails({});
-            }}
-            options={requirementOptions}
-            required
-          />
-          <FormField label="Applicant Name" value={form.applicantName} onChange={(v) => setForm({ ...form, applicantName: v })} required />
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Lead Source" value={form.leadSource} onChange={(v) => setForm({ ...form, leadSource: v })} required options={LEAD_SOURCES} />
-            <FormField label="Brought In By (Staff)" value={form.referredByUserId} onChange={(v) => setForm({ ...form, referredByUserId: v })} options={userOptions} />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <PhoneInput label="WhatsApp Phone" value={form.whatsappPhoneNumber} onChange={(v) => setForm({ ...form, whatsappPhoneNumber: v })} required />
-            <PhoneInput label="Contact Phone" value={form.contactPhone} onChange={(v) => setForm({ ...form, contactPhone: v })} />
-          </div>
-          {selectedProduct && selectedProduct.fieldSchema.length > 0 && (
-            <div className="mb-2 rounded-md border border-gray-200 bg-gray-50 px-4 pt-3 pb-1">
-              <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-gray-500">{selectedProduct.label} details</p>
-              {selectedProduct.fieldSchema.map((field) => (
-                <ProductFieldInput
-                  key={field.key}
-                  field={field}
-                  value={productDetails[field.key] ?? ''}
-                  onChange={(v) => setProductDetails({ ...productDetails, [field.key]: v })}
-                />
-              ))}
-            </div>
-          )}
-
-          <FormField label="Notes" value={form.notes} onChange={(v) => setForm({ ...form, notes: v })} placeholder="Any additional context about the lead..." />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting || !form.productTypeCode} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-
-    </div>
+      <ResponsiveDialog
+        open={assignOpen}
+        onOpenChange={setAssignOpen}
+        title={`Assign ${selected.size} ${selected.size === 1 ? 'lead' : 'leads'}`}
+        size="sm"
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setAssignOpen(false)}>Cancel</Button>
+            <Button loading={assigning} loadingText="Assigning…" onClick={() => void bulkAssign()}>Assign</Button>
+          </>
+        }
+      >
+        <Field label="Team member" hint="Leave empty to unassign.">
+          <Combobox value={assignee} onValueChange={(v) => setAssignee(v)} options={userOptions} placeholder="Unassigned" clearable />
+        </Field>
+      </ResponsiveDialog>
+    </>
   );
 }
+

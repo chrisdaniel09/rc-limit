@@ -1,355 +1,273 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost, apiPut } from '../../api/client';
-import Modal from '../../components/Modal';
-import DataTable, { type Column } from '../../components/DataTable';
-import FormField from '../../components/FormField';
-import PhoneInput from '../../components/PhoneInput';
-import { toPhoneNumber } from '../../utils/phone';
-import { useListState } from '../../hooks/useListState';
-import Pagination from '../../components/Pagination';
-
-interface Role {
-  roleId: string;
-  code: string;
-  name: string;
-}
+import { useEffect, useState } from 'react';
+import { KeyRound, UserPlus } from 'lucide-react';
+import { z } from 'zod';
+import { apiPost, apiPut } from '@/api/client';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar } from '@/components/FilterBar';
+import { FormField, focusFirstError, useZodForm } from '@/components/form';
+import { PhoneInput } from '@/components/inputs';
+import Pagination from '@/components/Pagination';
+import Badge from '@/components/Badge';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/choice';
+import { useConfirm } from '@/components/ui/confirm';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { FieldGrid, FormSection } from '@/components/ui/field';
+import { Empty } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
+import { errorMessage, notifyError, notifySuccess } from '@/components/ui/toast';
+import { Avatar } from '@/layouts/Topbar';
+import { PageHeader } from '@/layouts/templates';
+import { INDIAN_MOBILE_MESSAGE, isValidIndianMobile, toPhoneNumber } from '@/utils/phone';
+import { MIN_PASSWORD_LENGTH, StrengthMeter, type Role } from './adminShared';
 
 interface User {
   userId: string;
   email: string;
   fullName: string;
+  phoneNumber?: string | null;
+  isActive?: boolean;
+  lastLoginAt?: string | null;
   roles?: Role[];
-  rightCodes?: string[];
 }
 
-const MIN_PASSWORD_LENGTH = 12;
-
-const emptyCreateForm = { email: '', fullName: '', phoneNumber: '', password: '', confirmPassword: '' };
-
-function RoleChecklist({
-  roles,
-  selectedRoleIds,
-  onChange,
-}: {
-  roles: Role[] | null;
-  selectedRoleIds: string[];
-  onChange: (roleIds: string[]) => void;
-}) {
+function RoleChecklist({ roles, selected, onChange }: { roles: Role[]; selected: string[]; onChange: (ids: string[]) => void }) {
+  if (roles.length === 0) return <p className="text-sm text-muted-foreground">No roles yet.</p>;
   return (
-    <div className="space-y-2 border rounded p-3 bg-gray-50 max-h-64 overflow-y-auto">
-      {roles && roles.length > 0 ? (
-        roles.map(role => (
-          <label key={role.roleId} className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={selectedRoleIds.includes(role.roleId)}
-              onChange={(e) => {
-                onChange(
-                  e.target.checked
-                    ? [...selectedRoleIds, role.roleId]
-                    : selectedRoleIds.filter(id => id !== role.roleId)
-                );
-              }}
-              className="rounded border-gray-300"
-            />
-            <div>
-              <div className="text-sm font-medium text-gray-900">{role.name}</div>
-              <div className="text-xs text-gray-500">{role.code}</div>
-            </div>
-          </label>
-        ))
-      ) : (
-        <div className="text-sm text-gray-500">No roles available</div>
-      )}
+    <div className="space-y-1 rounded-lg border p-3">
+      {roles.map((r) => (
+        <Checkbox
+          key={r.roleId}
+          label={r.name}
+          description={r.description || r.code}
+          checked={selected.includes(r.roleId)}
+          onCheckedChange={(checked) => onChange(checked ? [...selected, r.roleId] : selected.filter((id) => id !== r.roleId))}
+        />
+      ))}
     </div>
+  );
+}
+
+const passwordRules = z.string().min(MIN_PASSWORD_LENGTH, `At least ${MIN_PASSWORD_LENGTH} characters`);
+
+const createSchema = z.object({
+  email: z.email('Enter a valid email'),
+  fullName: z.string().trim().min(2, 'Enter the full name').max(200),
+  phoneNumber: z.string().refine((v) => v === '' || isValidIndianMobile(v), INDIAN_MOBILE_MESSAGE),
+  password: passwordRules,
+  confirmPassword: z.string(),
+}).refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'], message: "Passwords don't match" });
+
+const resetSchema = z.object({ password: passwordRules, confirmPassword: z.string() })
+  .refine((v) => v.password === v.confirmPassword, { path: ['confirmPassword'], message: "Passwords don't match" });
+
+function CreateUserDialog({ open, onOpenChange, roles, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; roles: Role[]; onCreated: () => void }) {
+  const form = useZodForm(createSchema, { email: '', fullName: '', phoneNumber: '', password: '', confirmPassword: '' });
+  const { control, handleSubmit, reset, watch, formState } = form;
+  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [serverError, setServerError] = useState<string | null>(null);
+  useEffect(() => {
+    if (open) {
+      reset();
+      setRoleIds([]);
+      setServerError(null);
+    }
+  }, [open, reset]);
+
+  const submit = handleSubmit(async (v) => {
+    setServerError(null);
+    try {
+      await apiPost('/api/v1/users', { email: v.email.trim(), fullName: v.fullName.trim(), phoneNumber: toPhoneNumber(v.phoneNumber), password: v.password, roleIds });
+      notifySuccess('User created');
+      onOpenChange(false);
+      onCreated();
+    } catch (err) {
+      setServerError(errorMessage(err, "The user wasn't created."));
+    }
+  }, focusFirstError);
+
+  return (
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="New user"
+      size="lg"
+      dirty={formState.isDirty || roleIds.length > 0}
+      error={serverError}
+      onSubmit={() => void submit()}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" loading={formState.isSubmitting} loadingText="Creating…">Create user</Button>
+        </>
+      }
+    >
+      <div className="space-y-5">
+        <FieldGrid>
+          <FormField control={control} name="fullName" label="Full name" required render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} autoFocus />} />
+          <FormField control={control} name="email" label="Email" required render={(f) => <Input type="email" autoComplete="off" value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+        </FieldGrid>
+        <FormField control={control} name="phoneNumber" label="Phone" optional render={(f) => <PhoneInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} />} />
+        <FieldGrid>
+          <FormField control={control} name="password" label="Initial password" required render={(f) => <Input type="password" autoComplete="new-password" value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+          <FormField control={control} name="confirmPassword" label="Confirm password" required render={(f) => <Input type="password" autoComplete="new-password" value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+        </FieldGrid>
+        <StrengthMeter password={watch('password')} />
+        <FormSection title="Roles"><RoleChecklist roles={roles} selected={roleIds} onChange={setRoleIds} /></FormSection>
+      </div>
+    </ResponsiveDialog>
+  );
+}
+
+// Side sheet: profile, roles, and reset password at the bottom (§10.12).
+function UserSheet({ user, onOpenChange, roles, onSaved }: { user: User | null; onOpenChange: (o: boolean) => void; roles: Role[]; onSaved: () => void }) {
+  const confirm = useConfirm();
+  const [roleIds, setRoleIds] = useState<string[]>([]);
+  const [savingRoles, setSavingRoles] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const resetForm = useZodForm(resetSchema, { password: '', confirmPassword: '' });
+
+  useEffect(() => {
+    if (!user) return;
+    setRoleIds(user.roles?.map((r) => r.roleId) ?? []);
+    setServerError(null);
+    resetForm.reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [user]);
+
+  if (!user) return null;
+  const rolesDirty = [...roleIds].sort().join() !== (user.roles?.map((r) => r.roleId) ?? []).sort().join();
+
+  const saveRoles = async () => {
+    setSavingRoles(true);
+    setServerError(null);
+    try {
+      await apiPut(`/api/v1/users/${user.userId}/roles`, { roleIds });
+      notifySuccess('Roles saved');
+      onSaved();
+      onOpenChange(false);
+    } catch (err) {
+      setServerError(errorMessage(err, "The roles weren't saved."));
+    } finally {
+      setSavingRoles(false);
+    }
+  };
+
+  const resetPassword = resetForm.handleSubmit(async (v) => {
+    const ok = await confirm({
+      title: `Reset ${user.fullName}'s password?`,
+      description: 'They are signed out of every session and must use the new password.',
+      confirmLabel: 'Reset password',
+      tone: 'danger',
+    });
+    if (!ok) return;
+    try {
+      await apiPut(`/api/v1/users/${user.userId}/password`, { newPassword: v.password });
+      resetForm.reset();
+      notifySuccess('Password reset', { description: `${user.email} was signed out of all sessions.` });
+    } catch (err) {
+      notifyError(err, "The password wasn't reset");
+    }
+  });
+
+  return (
+    <ResponsiveDialog
+      open
+      onOpenChange={onOpenChange}
+      variant="sheet"
+      title={user.fullName}
+      description={user.email}
+      dirty={rolesDirty}
+      error={serverError}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Close</Button>
+          <Button loading={savingRoles} loadingText="Saving…" disabled={!rolesDirty} onClick={() => void saveRoles()}>Save roles</Button>
+        </>
+      }
+    >
+      <div className="space-y-6">
+        <FormSection title="Roles"><RoleChecklist roles={roles} selected={roleIds} onChange={setRoleIds} /></FormSection>
+        <section className="space-y-3 rounded-lg border border-danger/30 p-4">
+          <div>
+            <h3 className="text-subheading">Reset password</h3>
+            <p className="text-caption text-muted-foreground">Sets a new password and signs the user out of every session.</p>
+          </div>
+          <FormField control={resetForm.control} name="password" label="New password" render={(f) => <Input type="password" autoComplete="new-password" value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+          <FormField control={resetForm.control} name="confirmPassword" label="Confirm password" render={(f) => <Input type="password" autoComplete="new-password" value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+          <StrengthMeter password={resetForm.watch('password')} />
+          <Button variant="outline-danger" icon={KeyRound} loading={resetForm.formState.isSubmitting} onClick={() => void resetPassword()}>Reset password</Button>
+        </section>
+      </div>
+    </ResponsiveDialog>
   );
 }
 
 export default function UsersPage() {
-  const list = useListState({
-    storageKey: 'users.pageSize',
-    defaultSortBy: 'email',
-    defaultSortDir: 'asc',
-    initialFilters: {},
-  });
-  const { data: users, meta, loading, refetch } = useFetch<User[]>(`/api/v1/users?${list.query}`, []);
-  const { data: roles } = useFetch<Role[]>('/api/v1/roles', []);
-
-  // Edit (roles + credential reset) state
-  const [showModal, setShowModal] = useState(false);
+  const list = useListState({ storageKey: 'users.pageSize', defaultSortBy: 'email', defaultSortDir: 'asc', initialFilters: {} as Record<string, string> });
+  const { data: users, meta, loading, error, refetch } = useFetch<User[]>(`/api/v1/users?${list.query}`, [], { staleAfter: LIST_STALE_MS });
+  const { data: roles } = useFetch<Role[]>('/api/v1/roles');
+  const [createOpen, setCreateOpen] = useState(false);
   const [editing, setEditing] = useState<User | null>(null);
-  const [selectedRoleIds, setSelectedRoleIds] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [resetPassword, setResetPassword] = useState('');
-  const [resetConfirm, setResetConfirm] = useState('');
-  const [resetting, setResetting] = useState(false);
-  const [resetError, setResetError] = useState<string | null>(null);
-  const [resetMessage, setResetMessage] = useState<string | null>(null);
 
-  // Create user state
-  const [showCreate, setShowCreate] = useState(false);
-  const [createForm, setCreateForm] = useState(emptyCreateForm);
-  const [createRoleIds, setCreateRoleIds] = useState<string[]>([]);
-  const [creating, setCreating] = useState(false);
-  const [createError, setCreateError] = useState<string | null>(null);
-
-  const openEdit = (user: User) => {
-    setEditing(user);
-    setSelectedRoleIds(user.roles?.map(r => r.roleId) || []);
-    setError(null);
-    setResetPassword('');
-    setResetConfirm('');
-    setResetError(null);
-    setResetMessage(null);
-    setShowModal(true);
-  };
-
-  const openCreate = () => {
-    setCreateForm(emptyCreateForm);
-    setCreateRoleIds([]);
-    setCreateError(null);
-    setShowCreate(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!editing) return;
-    setSubmitting(true);
-    setError(null);
-    try {
-      await apiPut(`/api/v1/users/${editing.userId}/roles`, {
-        roleIds: selectedRoleIds
-      });
-      setShowModal(false);
-      refetch();
-    } catch (err: any) {
-      setError(err.message || 'Operation failed');
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
-  const handleResetPassword = async () => {
-    if (!editing) return;
-    setResetError(null);
-    setResetMessage(null);
-    if (resetPassword.length < MIN_PASSWORD_LENGTH) {
-      setResetError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
-    if (resetPassword !== resetConfirm) {
-      setResetError('Passwords do not match.');
-      return;
-    }
-    setResetting(true);
-    try {
-      await apiPut(`/api/v1/users/${editing.userId}/password`, { newPassword: resetPassword });
-      setResetPassword('');
-      setResetConfirm('');
-      setResetMessage(`Password reset for ${editing.email}. Their existing sessions have been signed out.`);
-    } catch (err: any) {
-      setResetError(err.message || 'Password reset failed');
-    } finally {
-      setResetting(false);
-    }
-  };
-
-  const handleCreate = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setCreateError(null);
-    if (createForm.password.length < MIN_PASSWORD_LENGTH) {
-      setCreateError(`Password must be at least ${MIN_PASSWORD_LENGTH} characters.`);
-      return;
-    }
-    if (createForm.password !== createForm.confirmPassword) {
-      setCreateError('Passwords do not match.');
-      return;
-    }
-    setCreating(true);
-    try {
-      await apiPost('/api/v1/users', {
-        email: createForm.email.trim(),
-        fullName: createForm.fullName.trim(),
-        phoneNumber: toPhoneNumber(createForm.phoneNumber),
-        password: createForm.password,
-        roleIds: createRoleIds,
-      });
-      setShowCreate(false);
-      if (list.page === 1) refetch();
-      else list.setPage(1);
-    } catch (err: any) {
-      setCreateError(err.message || 'Failed to create user');
-    } finally {
-      setCreating(false);
-    }
-  };
-
-  const columns: Column<User>[] = [
-    { key: 'email', header: 'Email', sortKey: 'email' },
-    { key: 'fullName', header: 'Full Name', sortKey: 'fullName' },
+  const columns: ColumnDef<User>[] = [
     {
-      key: 'roles',
-      header: 'Roles',
-      render: (user: User) => (
-        <div className="text-sm">
-          {user.roles && user.roles.length > 0 ? (
-            <div className="flex flex-wrap gap-1">
-              {user.roles.map(r => (
-                <span key={r.roleId} className="bg-indigo-100 text-indigo-800 px-2 py-1 rounded text-xs">
-                  {r.name}
-                </span>
-              ))}
-            </div>
-          ) : (
-            <span className="text-gray-500">No roles</span>
-          )}
-        </div>
-      )
-    }
+      id: 'name', header: 'Name', sortKey: 'fullName', mobile: 'title',
+      cell: (u) => (
+        <span className="inline-flex items-center gap-2">
+          <Avatar name={u.fullName} size="sm" />
+          <span>
+            <span className="block">{u.fullName}</span>
+            <span className="block text-caption font-normal text-muted-foreground">{u.email}</span>
+          </span>
+        </span>
+      ),
+    },
+    {
+      id: 'roles', header: 'Roles', mobile: 'meta',
+      cell: (u) => {
+        const r = u.roles ?? [];
+        if (r.length === 0) return <Empty>No roles</Empty>;
+        return (
+          <span className="flex flex-wrap gap-1">
+            {r.slice(0, 3).map((role) => <Badge key={role.roleId} text={role.name} variant="progress" />)}
+            {r.length > 3 && <Badge text={`+${r.length - 3}`} />}
+          </span>
+        );
+      },
+    },
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-start justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Users</h1>
-            <p className="text-sm text-gray-600">Create users, assign roles and reset credentials</p>
-          </div>
-          <button
-            type="button"
-            onClick={openCreate}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-          >
-            New User
-          </button>
-        </div>
-
-        <div className="mt-4">
-          <DataTable
-            columns={columns}
-            data={users || []}
-            loading={loading}
-            onRowClick={openEdit}
-            searchPlaceholder="Search email or name..."
-            server={{
-              searchValue: list.searchInput,
-              onSearchChange: list.setSearchInput,
-              sortBy: list.sortBy,
-              sortDir: list.sortDir,
-              onSort: list.updateSort,
-              footer: (
-                <Pagination
-                  meta={meta}
-                  pageSize={list.pageSize}
-                  onPageChange={list.setPage}
-                  onPageSizeChange={list.setPageSize}
-                />
-              ),
-            }}
-          />
-        </div>
-      </div>
-
-      <Modal isOpen={showCreate} onClose={() => setShowCreate(false)} title="New User">
-        <form onSubmit={handleCreate} className="space-y-4">
-          {createError && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{createError}</div>}
-
-          <FormField label="Email" type="email" value={createForm.email} onChange={(v) => setCreateForm({ ...createForm, email: v })} required />
-          <FormField label="Full Name" value={createForm.fullName} onChange={(v) => setCreateForm({ ...createForm, fullName: v })} required />
-          <PhoneInput label="Phone Number" value={createForm.phoneNumber} onChange={(v) => setCreateForm({ ...createForm, phoneNumber: v })} />
-          <div className="grid grid-cols-2 gap-3">
-            <FormField label="Initial Password" type="password" value={createForm.password} onChange={(v) => setCreateForm({ ...createForm, password: v })} required placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} />
-            <FormField label="Confirm Password" type="password" value={createForm.confirmPassword} onChange={(v) => setCreateForm({ ...createForm, confirmPassword: v })} required />
-          </div>
-
-          <div>
-            <label className="block text-sm font-medium text-gray-900 mb-2">Roles</label>
-            <RoleChecklist roles={roles} selectedRoleIds={createRoleIds} onChange={setCreateRoleIds} />
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-            <button
-              type="button"
-              onClick={() => setShowCreate(false)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={creating}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {creating ? 'Creating...' : 'Create User'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? `Manage User: ${editing.fullName}` : ''}>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{error}</div>}
-
-          {editing && (
-            <>
-              <div className="bg-gray-50 rounded p-3 text-sm">
-                <div className="text-gray-700">
-                  <div className="font-medium">{editing.fullName}</div>
-                  <div className="text-gray-600">{editing.email}</div>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-sm font-medium text-gray-900 mb-3">Assign Roles</label>
-                <RoleChecklist roles={roles} selectedRoleIds={selectedRoleIds} onChange={setSelectedRoleIds} />
-              </div>
-            </>
-          )}
-
-          <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-            <button
-              type="button"
-              onClick={() => setShowModal(false)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {submitting ? 'Saving...' : 'Save Roles'}
-            </button>
-          </div>
-        </form>
-
-        {editing && (
-          <div className="mt-6 pt-4 border-t space-y-3">
-            <h3 className="text-sm font-semibold text-gray-900">Reset Password</h3>
-            <p className="text-xs text-gray-500">Sets a new password and signs the user out of all active sessions.</p>
-            {resetError && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{resetError}</div>}
-            {resetMessage && <div className="bg-green-50 border border-green-200 rounded p-3 text-sm text-green-700">{resetMessage}</div>}
-            <div className="grid grid-cols-2 gap-3">
-              <FormField label="New Password" type="password" value={resetPassword} onChange={setResetPassword} placeholder={`At least ${MIN_PASSWORD_LENGTH} characters`} />
-              <FormField label="Confirm Password" type="password" value={resetConfirm} onChange={setResetConfirm} />
-            </div>
-            <div className="flex justify-end">
-              <button
-                type="button"
-                onClick={handleResetPassword}
-                disabled={resetting || !resetPassword}
-                className="rounded-md border border-red-300 bg-white px-4 py-2 text-sm font-medium text-red-700 hover:bg-red-50 disabled:opacity-50"
-              >
-                {resetting ? 'Resetting...' : 'Reset Password'}
-              </button>
-            </div>
-          </div>
-        )}
-      </Modal>
-    </div>
+    <>
+      <PageHeader
+        title="Users"
+        count={meta?.totalCount}
+        description="Create users, assign roles and reset credentials."
+        actions={<Button icon={UserPlus} data-new-record onClick={() => setCreateOpen(true)}>New user</Button>}
+      />
+      <FilterBar searchValue={list.searchInput} onSearchChange={list.setSearchInput} searchPlaceholder="Search email or name…" resultCount={meta?.totalCount} resultLabel="users" />
+      <DataTable
+        label="Users"
+        columns={columns}
+        rows={users}
+        getRowId={(u) => u.userId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        onRowClick={setEditing}
+        sort={{ sortBy: list.sortBy, sortDir: list.sortDir, onSort: list.updateSort, onSortChange: list.setSort }}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clearFilters}
+        accumulate={{ page: list.page, viewKey: list.viewKey }}
+        empty={{ title: 'No users yet', action: <Button icon={UserPlus} onClick={() => setCreateOpen(true)}>New user</Button> }}
+        footer={<Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />}
+      />
+      <CreateUserDialog open={createOpen} onOpenChange={setCreateOpen} roles={roles ?? []} onCreated={() => (list.page === 1 ? void refetch() : list.setPage(1))} />
+      <UserSheet user={editing} onOpenChange={(o) => !o && setEditing(null)} roles={roles ?? []} onSaved={() => void refetch()} />
+    </>
   );
 }
+

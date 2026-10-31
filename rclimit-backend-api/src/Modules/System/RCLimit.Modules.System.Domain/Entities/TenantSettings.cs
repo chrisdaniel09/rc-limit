@@ -12,6 +12,11 @@ public class TenantSettings
     public int? IdleTimeoutDays { get; set; }
     public int? AbsoluteTimeoutDays { get; set; }
     public int? MaxSessionsPerUser { get; set; }
+    // Tenant theme document (docs/ui_ux_specification.md §3.5), stored as JSONB. Null means the platform default.
+    public string? Theme { get; set; }
+    // Utilization tone thresholds for sub-limit meters (§6.4). Null means 70 / 90.
+    public int? SubLimitWarnPct { get; set; }
+    public int? SubLimitDangerPct { get; set; }
     public DateTime CreatedAt { get; set; } = DateTime.UtcNow;
 
     public Tenant Tenant { get; set; } = null!;

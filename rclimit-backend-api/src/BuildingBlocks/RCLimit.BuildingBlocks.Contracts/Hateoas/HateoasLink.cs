@@ -4,7 +4,12 @@ namespace RCLimit.BuildingBlocks.Contracts.Hateoas;
 
 public record HateoasLink(string Href, string Rel, string Method);
 
-public record PageMeta(int Page, int PageSize, int TotalCount, int TotalPages);
+// Totals are aggregates over the whole filter, when a list sends them (docs/ui_ux_specification.md §15-6).
+public record PageMeta(int Page, int PageSize, int TotalCount, int TotalPages)
+{
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public IReadOnlyDictionary<string, decimal>? Totals { get; init; }
+}
 
 public class HateoasResponse<T>
 {

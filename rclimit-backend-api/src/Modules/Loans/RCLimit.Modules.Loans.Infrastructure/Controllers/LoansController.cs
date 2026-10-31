@@ -5,6 +5,7 @@ using RCLimit.BuildingBlocks.Contracts.Hateoas;
 using RCLimit.BuildingBlocks.Domain.Exceptions;
 using RCLimit.BuildingBlocks.Domain.Paging;
 using RCLimit.BuildingBlocks.Infrastructure.Authorization;
+using RCLimit.BuildingBlocks.Infrastructure.Export;
 using RCLimit.Modules.Loans.Application.DisbursalLineItems;
 using RCLimit.Modules.Loans.Application.Loans;
 
@@ -25,7 +26,7 @@ public class LoansController : ControllerBase
     [HttpGet]
     [HasRight("loans.view")]
     public async Task<IActionResult> GetAll(
-        [FromQuery] string? loanStatus = null,
+        [FromQuery] LoanListParams filter,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = PageQuery.DefaultPageSize,
         [FromQuery] string? sortBy = null,
@@ -33,15 +34,25 @@ public class LoansController : ControllerBase
         [FromQuery] string? search = null)
     {
         var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
-        var result = await _sender.Send(new GetLoansQuery(loanStatus, paging));
+        var result = await _sender.Send(new GetLoansQuery(filter.ToFilter(), paging));
+        var items = result.Page;
         return Ok(new HateoasResponse<object>
         {
-            Data = result.Items,
-            Meta = new PageMeta(result.Page, result.PageSize, result.TotalCount, result.TotalPages),
+            Data = items.Items,
+            Meta = new PageMeta(items.Page, items.PageSize, items.TotalCount, items.TotalPages)
+            {
+                Totals = new Dictionary<string, decimal>
+                {
+                    ["requestedAmount"] = result.Totals.RequestedAmount,
+                    ["sanctionedAmount"] = result.Totals.SanctionedAmount,
+                    ["netDisbursedAmount"] = result.Totals.NetDisbursedAmount,
+                },
+            },
             Links =
             [
                 new("/api/v1/loans", "self", "GET"),
                 new("/api/v1/loans", "create", "POST"),
+                new("/api/v1/loans/export", "export", "GET"),
                 new("/api/v1/loans/rc-limit-ledger", "rc-limit-ledger", "GET"),
                 new("/api/v1/customers", "customers", "GET"),
                 new("/api/v1/lenders", "lenders", "GET"),
@@ -49,25 +60,66 @@ public class LoansController : ControllerBase
         });
     }
 
+    // CSV of every loan matching the list's filters (§15-6). Declared before the {id} route.
+    [HttpGet("export")]
+    [HasRight("loans.view")]
+    public async Task<IActionResult> Export(
+        [FromQuery] LoanListParams filter,
+        [FromQuery] string? sortBy = null,
+        [FromQuery] string? sortDir = null,
+        [FromQuery] string? search = null)
+    {
+        var rows = await _sender.Send(new GetLoansExportQuery(filter.ToFilter(), new PageQuery(1, PageQuery.MaxPageSize, sortBy, sortDir, search)));
+        return CsvFile.Create(
+            $"loans-{DateTime.UtcNow:yyyyMMdd-HHmm}.csv",
+            ["Application #", "Customer", "Vehicle", "Lender", "Agreement #", "Product", "Requested", "Sanctioned", "Balance", "Rate %", "Payout earned", "Status", "Disbursed", "RC aging days", "RC aging"],
+            rows.Select(l => (IReadOnlyList<object?>)[
+                l.ApplicationNumber, l.CustomerName, l.VehicleRegNo, l.LenderName, l.LenderAgreementNumber, l.ProductType,
+                l.RequestedAmount, l.SanctionedAmount, l.NetDisbursedAmount, l.CustomerRate, l.TotalPayoutEarned, l.LoanStatus,
+                l.DisbursalDate, l.RcAgingDays, l.RcAgingStatus,
+            ]));
+    }
+
     // The RC Limit Ledger report. Declared before the {id} route so the literal path is matched first.
     [HttpGet("rc-limit-ledger")]
     [HasRight("loans.view")]
     public async Task<IActionResult> GetRcLedger(
-        [FromQuery] Guid? customerId = null,
-        [FromQuery] Guid? poolId = null,
-        [FromQuery] DateOnly? startDate = null,
-        [FromQuery] DateOnly? endDate = null,
-        [FromQuery] bool? hasOpenBalance = null,
-        [FromQuery] bool hideDirectCustomerCredits = false)
+        [FromQuery] RcLedgerParams filter,
+        [FromQuery] int page = 1,
+        [FromQuery] int pageSize = PageQuery.DefaultPageSize,
+        [FromQuery] string? search = null)
     {
-        var rows = await _sender.Send(new GetRcLedgerQuery(
-            customerId, poolId, startDate, endDate, hasOpenBalance, hideDirectCustomerCredits));
+        var paging = new PageQuery(page, pageSize, null, null, search);
+        var result = await _sender.Send(filter.ToQuery(search, paging));
+        var totalPages = (int)Math.Ceiling(result.TotalCount / (double)paging.NormalizedPageSize);
 
         return Ok(new HateoasResponse<List<RcLedgerRowDto>>
         {
-            Data = rows,
-            Links = [new("/api/v1/loans/rc-limit-ledger", "self", "GET")]
+            Data = result.Items,
+            Meta = new PageMeta(paging.NormalizedPage, paging.NormalizedPageSize, result.TotalCount, totalPages)
+            {
+                Totals = new Dictionary<string, decimal> { ["credit"] = result.CreditTotal, ["debit"] = result.DebitTotal },
+            },
+            Links =
+            [
+                new("/api/v1/loans/rc-limit-ledger", "self", "GET"),
+                new("/api/v1/loans/rc-limit-ledger/export", "export", "GET"),
+            ]
         });
+    }
+
+    [HttpGet("rc-limit-ledger/export")]
+    [HasRight("loans.view")]
+    public async Task<IActionResult> ExportRcLedger([FromQuery] RcLedgerParams filter, [FromQuery] string? search = null)
+    {
+        var result = await _sender.Send(filter.ToQuery(search, null));
+        return CsvFile.Create(
+            $"rc-limit-ledger-{DateTime.UtcNow:yyyyMMdd-HHmm}.csv",
+            ["Date", "Application #", "Customer", "Vehicle", "Lender", "Loan status", "Entry", "Counterparty", "Particular", "Credit", "Debit", "Balance"],
+            result.Items.Select(r => (IReadOnlyList<object?>)[
+                r.EntryDate, r.ApplicationNumber, r.CustomerName, r.VehicleRegNo, r.LenderName, r.LoanStatus, r.EntryDirection,
+                r.Counterparty, r.ParticularType, r.CreditAmount, r.DebitAmount, r.RunningBalanceAmt,
+            ]));
     }
 
     [HttpGet("{id:guid}")]
@@ -203,3 +255,35 @@ public record AddDisbursalLineItemRequest(
     decimal Amount);
 
 public record UpdateLoanDocumentStatusRequest(Guid? DocumentStatusId);
+
+// Query-string filters for the loans list (docs/ui_ux_specification.md §10.7). loanStatus accepts a comma-separated set.
+public class LoanListParams
+{
+    public string? LoanStatus { get; set; }
+    public Guid? LenderId { get; set; }
+    public Guid? PoolId { get; set; }
+    public string? ProductType { get; set; }
+    public Guid? PartnerId { get; set; }
+    public Guid? CustomerId { get; set; }
+    public DateOnly? DisbursedFrom { get; set; }
+    public DateOnly? DisbursedTo { get; set; }
+    public string? RcAging { get; set; }
+    public bool? HasOpenBalance { get; set; }
+
+    public LoanListFilter ToFilter() => new(
+        (LoanStatus ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries),
+        LenderId, PoolId, ProductType, PartnerId, CustomerId, DisbursedFrom, DisbursedTo, RcAging, HasOpenBalance);
+}
+
+public class RcLedgerParams
+{
+    public Guid? CustomerId { get; set; }
+    public Guid? PoolId { get; set; }
+    public DateOnly? StartDate { get; set; }
+    public DateOnly? EndDate { get; set; }
+    public bool? HasOpenBalance { get; set; }
+    public bool HideDirectCustomerCredits { get; set; }
+
+    public GetRcLedgerQuery ToQuery(string? search, PageQuery? paging) =>
+        new(CustomerId, PoolId, StartDate, EndDate, HasOpenBalance, HideDirectCustomerCredits, search, paging);
+}

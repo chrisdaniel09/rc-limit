@@ -25,6 +25,11 @@ public class CustomersController : ControllerBase
     public async Task<IActionResult> GetAll(
         [FromQuery] string? customerType = null,
         [FromQuery] string? riskStatus = null,
+        [FromQuery] string? cibilTier = null,
+        [FromQuery] bool? stopSupply = null,
+        [FromQuery] string? utilizationBand = null,
+        [FromQuery] int warnPct = 70,
+        [FromQuery] int dangerPct = 90,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = PageQuery.DefaultPageSize,
         [FromQuery] string? sortBy = null,
@@ -32,7 +37,9 @@ public class CustomersController : ControllerBase
         [FromQuery] string? search = null)
     {
         var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
-        var result = await _sender.Send(new GetCustomersQuery(customerType, riskStatus, paging));
+        static string[] Set(string? csv) => (csv ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var filter = new CustomerListFilter(customerType, Set(riskStatus), Set(cibilTier), stopSupply, utilizationBand, warnPct, dangerPct);
+        var result = await _sender.Send(new GetCustomersQuery(filter, paging));
         return Ok(new HateoasResponse<object>
         {
             Data = result.Items,

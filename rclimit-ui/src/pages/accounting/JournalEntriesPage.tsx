@@ -1,257 +1,186 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import Badge from '../../components/Badge';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
+import { Fragment, useEffect, useState } from 'react';
+import { ChevronRight, Plus, Trash2 } from 'lucide-react';
+import { apiPost } from '@/api/client';
+import { useClientFilter } from '@/hooks/useClientFilter';
+import { useFetch } from '@/hooks/useFetch';
+import { FilterBar } from '@/components/FilterBar';
+import Badge from '@/components/Badge';
+import { CurrencyInput } from '@/components/inputs';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/choice';
+import { Combobox } from '@/components/ui/combobox';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Field, FieldGrid } from '@/components/ui/field';
+import { Card, EmptyState, Skeleton } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
+import { Select } from '@/components/ui/select';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
+import { cn } from '@/lib/cn';
+import { formatDate, formatINR, humanize } from '@/lib/format';
 
-interface LineItem {
-  lineItemId: string;
-  accountId: string;
-  accountCode: string;
-  entryDirection: string;
-  amount: number;
-}
+interface LineItem { lineItemId: string; accountId: string; accountCode: string; entryDirection: string; amount: number }
+interface JournalEntry { journalId: string; entryNumber: number; entryDate: string; transactionType: string; narration: string; createdAt: string; lineItems: LineItem[] }
+interface LedgerAccount { accountId: string; accountCode: string; accountName: string; accountType: string }
+interface FormLine { id: string; accountId: string; direction: 'DEBIT' | 'CREDIT'; amount: number | null }
 
-interface JournalEntry {
-  journalId: string;
-  entryNumber: number;
-  entryDate: string;
-  transactionType: string;
-  narration: string;
-  createdAt: string;
-  lineItems: LineItem[];
-}
+const TRANSACTION_TYPES = ['MANUAL', 'BANK_DISBURSAL', 'CUSTOMER_DISBURSAL', 'FEE_DEDUCTION', 'COMMISSION_PAYOUT', 'ADJUSTMENT', 'REVERSAL'].map((v) => ({ value: v, label: humanize(v) }));
+const emptyLine = (direction: 'DEBIT' | 'CREDIT' = 'DEBIT'): FormLine => ({ id: crypto.randomUUID(), accountId: '', direction, amount: null });
 
-interface LedgerAccount {
-  accountId: string;
-  accountCode: string;
-  accountName: string;
-  accountType: string;
-}
+const sum = (lines: LineItem[], dir: string) => lines.filter((l) => l.entryDirection === dir).reduce((s, l) => s + l.amount, 0);
 
-interface FormLine {
-  accountId: string;
-  direction: 'DEBIT' | 'CREDIT';
-  amount: string;
-}
-
-const TRANSACTION_TYPES = [
-  { value: 'MANUAL', label: 'Manual Entry' },
-  { value: 'BANK_DISBURSAL', label: 'Bank Disbursal' },
-  { value: 'CUSTOMER_DISBURSAL', label: 'Customer Disbursal' },
-  { value: 'FEE_DEDUCTION', label: 'Fee Deduction' },
-  { value: 'COMMISSION_PAYOUT', label: 'Commission Payout' },
-  { value: 'ADJUSTMENT', label: 'Adjustment' },
-  { value: 'REVERSAL', label: 'Reversal' },
-];
-
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount);
-
-const formatDate = (dateStr: string) => {
-  if (!dateStr) return '-';
-  return new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
-const emptyLine = (): FormLine => ({ accountId: '', direction: 'DEBIT', amount: '' });
-
+// §10.13 Journal entries: expandable balanced debit/credit lines per entry.
 export default function JournalEntriesPage() {
   const { data: entries, loading, refetch } = useFetch<JournalEntry[]>('/api/v1/accounting/journal-entries');
   const { data: accounts } = useFetch<LedgerAccount[]>('/api/v1/accounting/accounts');
-  const [showModal, setShowModal] = useState(false);
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const list = useClientFilter(entries, (e) => [String(e.entryNumber), e.narration, e.transactionType]);
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const [open, setOpen] = useState(false);
+  const [form, setForm] = useState({ transactionType: 'MANUAL', narration: '', lines: [emptyLine('DEBIT'), emptyLine('CREDIT')] });
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-  const [form, setForm] = useState({
-    transactionType: 'MANUAL',
-    narration: '',
-    lines: [emptyLine(), emptyLine()] as FormLine[],
-  });
+  useEffect(() => {
+    if (open) {
+      setForm({ transactionType: 'MANUAL', narration: '', lines: [emptyLine('DEBIT'), emptyLine('CREDIT')] });
+      setServerError(null);
+    }
+  }, [open]);
 
-  const accountOptions = accounts?.map((a) => ({
-    value: a.accountId,
-    label: `${a.accountCode} — ${a.accountName}`,
-  })) ?? [];
+  const accountOptions = (accounts ?? []).map((a) => ({ value: a.accountId, label: `${a.accountCode} — ${a.accountName}`, secondary: humanize(a.accountType) }));
+  const debits = form.lines.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + (l.amount ?? 0), 0);
+  const credits = form.lines.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + (l.amount ?? 0), 0);
+  const balanced = debits > 0 && Math.abs(debits - credits) < 0.005;
+  const complete = form.lines.every((l) => l.accountId && l.amount);
+  const setLine = (id: string, patch: Partial<FormLine>) => setForm((f) => ({ ...f, lines: f.lines.map((l) => (l.id === id ? { ...l, ...patch } : l)) }));
 
-  const directionOptions = [
-    { value: 'DEBIT', label: 'Debit' },
-    { value: 'CREDIT', label: 'Credit' },
-  ];
-
-  const totalDebits = form.lines.filter((l) => l.direction === 'DEBIT').reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
-  const totalCredits = form.lines.filter((l) => l.direction === 'CREDIT').reduce((s, l) => s + (parseFloat(l.amount) || 0), 0);
-  const isBalanced = totalDebits > 0 && totalDebits === totalCredits;
-
-  const updateLine = (idx: number, field: keyof FormLine, value: string) => {
-    const updated = [...form.lines];
-    updated[idx] = { ...updated[idx], [field]: value };
-    setForm({ ...form, lines: updated });
-  };
-
-  const addLine = () => setForm({ ...form, lines: [...form.lines, emptyLine()] });
-
-  const removeLine = (idx: number) => {
-    if (form.lines.length <= 2) return;
-    setForm({ ...form, lines: form.lines.filter((_, i) => i !== idx) });
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!isBalanced) return;
-    setSubmitting(true);
+  const save = async () => {
+    if (!complete || !balanced || !form.narration.trim()) {
+      setServerError(!form.narration.trim() ? 'Enter a narration.' : !complete ? 'Choose an account and amount on every line.' : 'Debits and credits must be equal.');
+      return;
+    }
+    setSaving(true);
+    setServerError(null);
     try {
       await apiPost('/api/v1/accounting/journal-entries', {
         referenceId: crypto.randomUUID(),
         transactionType: form.transactionType,
-        narration: form.narration,
+        narration: form.narration.trim(),
         postedByRole: 'ADMIN',
         sourceModule: 'MANUAL',
-        lines: form.lines.map((l) => ({
-          accountId: l.accountId,
-          direction: l.direction,
-          amount: parseFloat(l.amount),
-        })),
+        lines: form.lines.map((l) => ({ accountId: l.accountId, direction: l.direction, amount: l.amount })),
       });
-      setShowModal(false);
-      setForm({ transactionType: 'MANUAL', narration: '', lines: [emptyLine(), emptyLine()] });
-      refetch();
-    } catch {
-      // handle
+      notifySuccess('Journal entry posted');
+      setOpen(false);
+      void refetch();
+    } catch (err) {
+      setServerError(errorMessage(err, "The journal entry wasn't posted."));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const resetAndOpen = () => {
-    setForm({ transactionType: 'MANUAL', narration: '', lines: [emptyLine(), emptyLine()] });
-    setShowModal(true);
-  };
+  const toggle = (id: string) => setExpanded((prev) => {
+    const next = new Set(prev);
+    if (next.has(id)) next.delete(id);
+    else next.add(id);
+    return next;
+  });
+
+  const rows = list.filtered ?? [];
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">Journal Entries</h2>
-        <button onClick={resetAndOpen} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          New Journal Entry
-        </button>
-      </div>
-
-      {loading ? (
-        <div className="space-y-3">
-          {[...Array(5)].map((_, i) => <div key={i} className="h-12 bg-gray-50 rounded animate-pulse" />)}
-        </div>
-      ) : !entries?.length ? (
-        <p className="text-sm text-gray-500">No journal entries found.</p>
+    <>
+      <PageHeader title="Journal entries" count={entries?.length} actions={<Button icon={Plus} data-new-record onClick={() => setOpen(true)}>New journal entry</Button>} />
+      <FilterBar searchValue={list.search} onSearchChange={list.setSearch} searchPlaceholder="Search entry #, narration…" />
+      {loading && !entries ? <Skeleton className="h-80 w-full" /> : rows.length === 0 ? (
+        <EmptyState variant={list.isFiltered ? 'no-results' : 'no-data'} title={list.isFiltered ? 'No entries match' : 'No journal entries yet'} />
       ) : (
-        <div className="space-y-3">
-          {entries.map((entry) => (
-            <div key={entry.journalId} className="border border-gray-200 rounded-lg bg-white">
-              <button
-                onClick={() => setExpandedId(expandedId === entry.journalId ? null : entry.journalId)}
-                className="w-full flex items-center justify-between px-4 py-3 text-left hover:bg-gray-50 transition-colors"
-              >
-                <div className="flex items-center gap-4">
-                  <span className="text-sm font-mono text-gray-500">#{entry.entryNumber}</span>
-                  <Badge text={entry.transactionType} variant="info" />
-                  <span className="text-sm text-gray-700">{entry.narration}</span>
-                </div>
-                <span className="text-xs text-gray-400">{formatDate(entry.createdAt)}</span>
-              </button>
-
-              {expandedId === entry.journalId && (
-                <div className="border-t border-gray-200 px-4 py-3">
-                  <table className="min-w-full text-sm">
-                    <thead>
-                      <tr className="text-left text-xs text-gray-500 uppercase">
-                        <th className="pb-2">Account</th>
-                        <th className="pb-2 text-right">Debit</th>
-                        <th className="pb-2 text-right">Credit</th>
+        <Card flush>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-muted text-left text-label text-muted-foreground">
+                <tr>
+                  <th className="w-8" />
+                  <th scope="col" className="h-10 px-cell font-medium">Entry</th>
+                  <th scope="col" className="px-cell font-medium">Date</th>
+                  <th scope="col" className="px-cell font-medium">Type</th>
+                  <th scope="col" className="px-cell font-medium">Narration</th>
+                  <th scope="col" className="px-cell text-right font-medium">Debit</th>
+                  <th scope="col" className="px-cell text-right font-medium">Credit</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y">
+                {rows.map((e) => {
+                  const isOpen = expanded.has(e.journalId);
+                  return (
+                    <Fragment key={e.journalId}>
+                      <tr className={cn('h-row hover:bg-muted/40', isOpen && 'bg-muted/40')}>
+                        <td className="pl-2">
+                          <button type="button" aria-expanded={isOpen} aria-label={isOpen ? 'Hide lines' : 'Show lines'} onClick={() => toggle(e.journalId)} className="flex size-6 items-center justify-center rounded text-muted-foreground hover:bg-muted">
+                            <ChevronRight className={cn('size-4 transition-transform', isOpen && 'rotate-90')} />
+                          </button>
+                        </td>
+                        <td className="num px-cell font-medium">#{e.entryNumber}</td>
+                        <td className="num whitespace-nowrap px-cell">{formatDate(e.entryDate)}</td>
+                        <td className="px-cell"><Badge text={humanize(e.transactionType)} variant="info" /></td>
+                        <td className="max-w-80 truncate px-cell text-muted-foreground">{e.narration}</td>
+                        <td className="num whitespace-nowrap px-cell text-right">{formatINR(sum(e.lineItems, 'DEBIT'))}</td>
+                        <td className="num whitespace-nowrap px-cell text-right">{formatINR(sum(e.lineItems, 'CREDIT'))}</td>
                       </tr>
-                    </thead>
-                    <tbody className="divide-y divide-gray-100">
-                      {entry.lineItems.map((li) => (
-                        <tr key={li.lineItemId}>
-                          <td className="py-1.5 font-mono text-gray-700">{li.accountCode}</td>
-                          <td className="py-1.5 text-right text-gray-700">
-                            {li.entryDirection === 'DEBIT' ? formatCurrency(li.amount) : ''}
+                      {isOpen && e.lineItems.map((li) => (
+                        <tr key={li.lineItemId} className="h-9 bg-muted/20 text-caption">
+                          <td />
+                          <td colSpan={4} className={cn('px-cell', li.entryDirection === 'CREDIT' && 'pl-12')}>
+                            <span className="id-mono">{li.accountCode}</span>{' '}
+                            <span className="text-muted-foreground">{accounts?.find((a) => a.accountId === li.accountId)?.accountName}</span>
                           </td>
-                          <td className="py-1.5 text-right text-gray-700">
-                            {li.entryDirection === 'CREDIT' ? formatCurrency(li.amount) : ''}
-                          </td>
+                          <td className="num px-cell text-right">{li.entryDirection === 'DEBIT' ? formatINR(li.amount) : ''}</td>
+                          <td className="num px-cell text-right">{li.entryDirection === 'CREDIT' ? formatINR(li.amount) : ''}</td>
                         </tr>
                       ))}
-                    </tbody>
-                    <tfoot>
-                      <tr className="font-semibold border-t border-gray-200">
-                        <td className="pt-2">Total</td>
-                        <td className="pt-2 text-right">
-                          {formatCurrency(entry.lineItems.filter((l) => l.entryDirection === 'DEBIT').reduce((s, l) => s + l.amount, 0))}
-                        </td>
-                        <td className="pt-2 text-right">
-                          {formatCurrency(entry.lineItems.filter((l) => l.entryDirection === 'CREDIT').reduce((s, l) => s + l.amount, 0))}
-                        </td>
-                      </tr>
-                    </tfoot>
-                  </table>
-                </div>
-              )}
-            </div>
-          ))}
-          <p className="text-xs text-gray-400">{entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}</p>
-        </div>
+                    </Fragment>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Card>
       )}
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="New Journal Entry">
-        <form onSubmit={handleSubmit}>
-          <FormField label="Transaction Type" value={form.transactionType} onChange={(v) => setForm({ ...form, transactionType: v })} required options={TRANSACTION_TYPES} />
-          <FormField label="Narration" value={form.narration} onChange={(v) => setForm({ ...form, narration: v })} required placeholder="Describe the transaction..." />
-
-          <div className="mt-4 mb-2">
-            <div className="flex items-center justify-between mb-2">
-              <label className="block text-sm font-medium text-gray-700">Line Items</label>
-              <button type="button" onClick={addLine} className="text-xs text-indigo-600 hover:text-indigo-800">+ Add Line</button>
-            </div>
-
-            <div className="space-y-2">
-              {form.lines.map((line, idx) => (
-                <div key={idx} className="flex items-end gap-2">
-                  <div className="flex-1">
-                    <FormField label={idx === 0 ? 'Account' : ''} value={line.accountId} onChange={(v) => updateLine(idx, 'accountId', v)} required options={accountOptions} />
-                  </div>
-                  <div className="w-28">
-                    <FormField label={idx === 0 ? 'Direction' : ''} value={line.direction} onChange={(v) => updateLine(idx, 'direction', v)} required options={directionOptions} />
-                  </div>
-                  <div className="w-32">
-                    <FormField label={idx === 0 ? 'Amount (₹)' : ''} type="number" value={line.amount} onChange={(v) => updateLine(idx, 'amount', v)} required placeholder="0.00" />
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => removeLine(idx)}
-                    disabled={form.lines.length <= 2}
-                    className="mb-4 text-red-400 hover:text-red-600 disabled:opacity-30 text-lg leading-none"
-                  >
-                    &times;
-                  </button>
-                </div>
-              ))}
-            </div>
-
-            <div className="flex justify-between text-sm mt-3 px-1">
-              <span>Debits: <span className="font-semibold">{formatCurrency(totalDebits)}</span></span>
-              <span>Credits: <span className="font-semibold">{formatCurrency(totalCredits)}</span></span>
-            </div>
-            {totalDebits > 0 && !isBalanced && (
-              <p className="text-xs text-red-600 mt-1">Debits must equal Credits to post.</p>
-            )}
+      <ResponsiveDialog
+        open={open}
+        onOpenChange={setOpen}
+        title="New journal entry"
+        size="xl"
+        dirty={!!form.narration || form.lines.some((l) => l.accountId || l.amount)}
+        error={serverError}
+        onSubmit={() => void save()}
+        footer={<><Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" loading={saving} loadingText="Posting…" disabledReason={!balanced ? 'Debits and credits must be equal.' : undefined}>Post entry</Button></>}
+      >
+        <div className="space-y-4">
+          <FieldGrid>
+            <Field label="Transaction type" required><Select value={form.transactionType} onValueChange={(v) => setForm((f) => ({ ...f, transactionType: v }))} options={TRANSACTION_TYPES} /></Field>
+            <Field label="Narration" required><Input value={form.narration} onChange={(e) => setForm((f) => ({ ...f, narration: e.target.value }))} /></Field>
+          </FieldGrid>
+          <div className="space-y-2">
+            <p className="text-label text-foreground">Lines</p>
+            {form.lines.map((l, i) => (
+              <div key={l.id} className="grid grid-cols-1 items-start gap-2 rounded-lg border p-3 md:grid-cols-[minmax(0,1fr)_auto_10rem_auto] md:border-0 md:p-0">
+                <Combobox aria-label={`Line ${i + 1} account`} value={l.accountId} onValueChange={(v) => setLine(l.id, { accountId: v })} options={accountOptions} placeholder="Choose an account" />
+                <Segmented aria-label={`Line ${i + 1} direction`} value={l.direction} onValueChange={(v) => setLine(l.id, { direction: v })} options={[{ value: 'DEBIT', label: 'Debit' }, { value: 'CREDIT', label: 'Credit' }]} />
+                <CurrencyInput aria-label={`Line ${i + 1} amount`} value={l.amount} onValueChange={(v) => setLine(l.id, { amount: v })} />
+                <Button variant="ghost" size="icon" aria-label={`Remove line ${i + 1}`} disabled={form.lines.length <= 2} onClick={() => setForm((f) => ({ ...f, lines: f.lines.filter((x) => x.id !== l.id) }))}><Trash2 /></Button>
+              </div>
+            ))}
+            <Button variant="outline" size="sm" icon={Plus} onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, emptyLine()] }))}>Add line</Button>
           </div>
-
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting || !isBalanced} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Posting...' : 'Post Entry'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+          <Alert tone={balanced ? 'success' : 'warning'}>
+            <span className="num">Debits {formatINR(debits)} · Credits {formatINR(credits)}</span>
+            {!balanced && debits + credits > 0 && <span className="num"> · difference {formatINR(Math.abs(debits - credits))}</span>}
+          </Alert>
+        </div>
+      </ResponsiveDialog>
+    </>
   );
 }

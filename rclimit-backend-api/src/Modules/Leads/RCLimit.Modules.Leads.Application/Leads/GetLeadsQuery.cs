@@ -9,7 +9,23 @@ using RCLimit.Modules.Leads.Domain.Entities;
 
 namespace RCLimit.Modules.Leads.Application.Leads;
 
-public record GetLeadsQuery(bool AssignedToMe, string? LeadStatus, PageQuery Paging) : IRequest<PagedResult<LeadDto>>;
+/// <summary>
+/// Filters for the leads list (docs/ui_ux_specification.md §10.3). Statuses and sources are sets; empty means any.
+/// AssignedTo is a user id, or "UNASSIGNED" for leads with no assignee. Created dates are inclusive, in UTC days.
+/// </summary>
+public record LeadListFilter(
+    bool AssignedToMe = false,
+    IReadOnlyList<string>? Statuses = null,
+    string? ProductTypeCode = null,
+    IReadOnlyList<string>? Sources = null,
+    string? AssignedTo = null,
+    DateOnly? CreatedFrom = null,
+    DateOnly? CreatedTo = null)
+{
+    public const string Unassigned = "UNASSIGNED";
+}
+
+public record GetLeadsQuery(LeadListFilter Filter, PageQuery Paging) : IRequest<PagedResult<LeadDto>>;
 
 public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, PagedResult<LeadDto>>
 {
@@ -41,13 +57,29 @@ public class GetLeadsQueryHandler : IRequestHandler<GetLeadsQuery, PagedResult<L
 
         var query = _db.Leads
             .Where(l => l.TenantId == _tenant.TenantId)
-            .Where(l => !request.AssignedToMe || l.AssignedToUserId == _tenant.UserId)
-            .Where(l => string.IsNullOrEmpty(request.LeadStatus) || l.LeadStatus == request.LeadStatus)
             .Where(l => pattern == null
                 || EF.Functions.Like((l.ApplicantName ?? "").ToLower(), pattern)
                 || EF.Functions.Like(l.WhatsappPhoneNumber.ToLower(), pattern)
                 || EF.Functions.Like((l.ContactPhone ?? "").ToLower(), pattern)
                 || EF.Functions.Like((l.VehicleRegistrationNumber ?? "").ToLower(), pattern));
+
+        var f = request.Filter;
+        if (f.AssignedToMe) query = query.Where(l => l.AssignedToUserId == _tenant.UserId);
+        if (f.Statuses is { Count: > 0 } statuses) query = query.Where(l => statuses.Contains(l.LeadStatus));
+        if (!string.IsNullOrEmpty(f.ProductTypeCode)) query = query.Where(l => l.ProductTypeCode == f.ProductTypeCode);
+        if (f.Sources is { Count: > 0 } sources) query = query.Where(l => sources.Contains(l.LeadSource));
+        if (f.AssignedTo == LeadListFilter.Unassigned) query = query.Where(l => l.AssignedToUserId == null);
+        else if (Guid.TryParse(f.AssignedTo, out var assignee)) query = query.Where(l => l.AssignedToUserId == assignee);
+        if (f.CreatedFrom is { } from)
+        {
+            var start = from.ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            query = query.Where(l => l.CreatedAt >= start);
+        }
+        if (f.CreatedTo is { } to)
+        {
+            var end = to.AddDays(1).ToDateTime(TimeOnly.MinValue, DateTimeKind.Utc);
+            query = query.Where(l => l.CreatedAt < end);
+        }
 
         var total = await query.CountAsync(cancellationToken);
 

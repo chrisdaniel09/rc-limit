@@ -20,6 +20,9 @@ public class TenantSettingsConfiguration : IEntityTypeConfiguration<TenantSettin
         builder.Property(e => e.IdleTimeoutDays).HasColumnName("idle_timeout_days");
         builder.Property(e => e.AbsoluteTimeoutDays).HasColumnName("absolute_timeout_days");
         builder.Property(e => e.MaxSessionsPerUser).HasColumnName("max_sessions_per_user");
+        builder.Property(e => e.Theme).HasColumnName("theme").HasColumnType("jsonb");
+        builder.Property(e => e.SubLimitWarnPct).HasColumnName("sub_limit_warn_pct");
+        builder.Property(e => e.SubLimitDangerPct).HasColumnName("sub_limit_danger_pct");
         builder.Property(e => e.CreatedAt).HasColumnName("created_at");
     }
 }

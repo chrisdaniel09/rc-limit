@@ -1,11 +1,21 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
+import { useEffect, useState } from 'react';
+import { Plus } from 'lucide-react';
+import { z } from 'zod';
+import { apiPost } from '@/api/client';
+import { useClientFilter } from '@/hooks/useClientFilter';
+import { useFetch } from '@/hooks/useFetch';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar } from '@/components/FilterBar';
+import { FormField, focusFirstError, useZodForm } from '@/components/form';
+import { CodeInput, IntegerInput, PercentInput } from '@/components/inputs';
+import StatusBadge from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { FieldGrid } from '@/components/ui/field';
+import { Input } from '@/components/ui/input';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
+import { formatPercent } from '@/lib/format';
 
 interface Lender {
   lenderId: string;
@@ -16,66 +26,88 @@ interface Lender {
   status: string;
 }
 
-export default function LendersPage() {
-  const { data, loading, refetch } = useFetch<Lender[]>('/api/v1/lenders');
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ name: '', code: '', baseInterestRate: '', defaultTenureLimitDays: '45' });
-  const [submitting, setSubmitting] = useState(false);
+const schema = z.object({
+  name: z.string().trim().min(2, 'Enter the lender name').max(200),
+  code: z.string().min(2, 'Enter a code').max(40),
+  baseInterestRate: z.number({ error: 'Enter the base rate' }).min(0).max(60),
+  defaultTenureLimitDays: z.number({ error: 'Enter the tenure' }).int().min(1).max(3650),
+});
 
-  const columns: Column<Lender>[] = [
-    { key: 'name', header: 'Name' },
-    { key: 'code', header: 'Code' },
-    { key: 'baseInterestRate', header: 'Base Rate %', render: (l) => `${l.baseInterestRate}%` },
-    { key: 'defaultTenureLimitDays', header: 'Tenure Days' },
-    { key: 'status', header: 'Status', render: (l) => <Badge text={l.status} variant={statusVariant(l.status)} /> },
+export default function LendersPage() {
+  const { data, loading, error, refetch } = useFetch<Lender[]>('/api/v1/lenders');
+  const list = useClientFilter(data, (l) => [l.name, l.code]);
+  const [open, setOpen] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
+  const form = useZodForm(schema, { name: '', code: '', baseInterestRate: null as unknown as number, defaultTenureLimitDays: 45 });
+  const { control, handleSubmit, reset, formState } = form;
+
+  useEffect(() => {
+    if (open) {
+      reset();
+      setServerError(null);
+    }
+  }, [open, reset]);
+
+  const submit = handleSubmit(async (v) => {
+    setServerError(null);
+    try {
+      await apiPost('/api/v1/lenders', v);
+      notifySuccess('Lender added');
+      setOpen(false);
+      void refetch();
+    } catch (err) {
+      setServerError(errorMessage(err, "The lender wasn't added."));
+    }
+  }, focusFirstError);
+
+  const columns: ColumnDef<Lender>[] = [
+    { id: 'name', header: 'Name', mobile: 'title', cell: (l) => l.name },
+    { id: 'code', header: 'Code', kind: 'id', mobile: 'subtitle', cell: (l) => l.code },
+    { id: 'rate', header: 'Base rate', kind: 'number', mobile: 'meta', cell: (l) => formatPercent(l.baseInterestRate) },
+    { id: 'tenure', header: 'Default tenure', kind: 'number', mobile: 'meta', cell: (l) => `${l.defaultTenureLimitDays} days` },
+    { id: 'status', header: 'Status', kind: 'status', mobile: 'badge', cell: (l) => <StatusBadge status={l.status} inTable /> },
   ];
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await apiPost('/api/v1/lenders', {
-        name: form.name,
-        code: form.code,
-        baseInterestRate: parseFloat(form.baseInterestRate),
-        defaultTenureLimitDays: parseInt(form.defaultTenureLimitDays),
-      });
-      setShowModal(false);
-      setForm({ name: '', code: '', baseInterestRate: '', defaultTenureLimitDays: '45' });
-      refetch();
-    } catch {
-      // handle error
-    } finally {
-      setSubmitting(false);
-    }
-  };
-
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">All Lenders</h2>
-        <button
-          onClick={() => setShowModal(true)}
-          className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-        >
-          Add Lender
-        </button>
-      </div>
-
-      <DataTable columns={columns} data={data ?? []} loading={loading} searchPlaceholder="Search lenders..." />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Lender">
-        <form onSubmit={handleSubmit}>
-          <FormField label="Name" value={form.name} onChange={(v) => setForm({ ...form, name: v })} required />
-          <FormField label="Code" value={form.code} onChange={(v) => setForm({ ...form, code: v })} required placeholder="e.g. CHOLA_CV" />
-          <FormField label="Base Interest Rate (%)" type="number" value={form.baseInterestRate} onChange={(v) => setForm({ ...form, baseInterestRate: v })} required />
-          <FormField label="Default Tenure (days)" type="number" value={form.defaultTenureLimitDays} onChange={(v) => setForm({ ...form, defaultTenureLimitDays: v })} required />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+    <>
+      <PageHeader title="Lenders" count={data?.length} actions={<Button icon={Plus} data-new-record onClick={() => setOpen(true)}>Add lender</Button>} />
+      <FilterBar searchValue={list.search} onSearchChange={list.setSearch} searchPlaceholder="Search lenders…" />
+      <DataTable
+        label="Lenders"
+        columns={columns}
+        rows={list.filtered}
+        getRowId={(l) => l.lenderId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clear}
+        empty={{ title: 'No lenders yet', description: 'Add the banks and NBFCs you place loans with.', action: <Button icon={Plus} onClick={() => setOpen(true)}>Add lender</Button> }}
+      />
+      <ResponsiveDialog
+        open={open}
+        onOpenChange={setOpen}
+        variant="sheet"
+        title="Add lender"
+        dirty={formState.isDirty}
+        error={serverError}
+        onSubmit={() => void submit()}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setOpen(false)}>Cancel</Button>
+            <Button type="submit" loading={formState.isSubmitting} loadingText="Adding…">Add lender</Button>
+          </>
+        }
+      >
+        <div className="space-y-4">
+          <FormField control={control} name="name" label="Name" required render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} autoFocus />} />
+          <FormField control={control} name="code" label="Code" required render={(f) => <CodeInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} placeholder="CHOLA_CV" />} />
+          <FieldGrid>
+            <FormField control={control} name="baseInterestRate" label="Base interest rate" required render={(f) => <PercentInput value={f.value ?? null} onValueChange={(v) => f.onChange(v as number)} onBlur={f.onBlur} />} />
+            <FormField control={control} name="defaultTenureLimitDays" label="Default tenure (days)" required render={(f) => <IntegerInput value={f.value ?? null} onValueChange={(v) => f.onChange(v as number)} onBlur={f.onBlur} min={1} max={3650} />} />
+          </FieldGrid>
+        </div>
+      </ResponsiveDialog>
+    </>
   );
 }

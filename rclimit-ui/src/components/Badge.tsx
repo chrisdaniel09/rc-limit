@@ -1,21 +1,25 @@
-import type { BadgeVariant } from './badgeVariants';
+import type { LucideIcon } from 'lucide-react';
+import { cn } from '../lib/cn';
+import { TONE_BADGE, type Tone } from '../lib/status';
 
 interface BadgeProps {
   text: string;
-  variant?: BadgeVariant;
+  variant?: Tone;
+  icon?: LucideIcon;
+  className?: string;
 }
 
-const variantClasses: Record<BadgeVariant, string> = {
-  success: 'bg-green-100 text-green-800',
-  warning: 'bg-yellow-100 text-yellow-800',
-  danger: 'bg-red-100 text-red-800',
-  info: 'bg-blue-100 text-blue-800',
-  neutral: 'bg-gray-100 text-gray-800',
-};
-
-export default function Badge({ text, variant = 'neutral' }: BadgeProps) {
+// A plain labelled pill. For domain statuses use StatusBadge, which adds the registry's label and icon.
+export default function Badge({ text, variant = 'neutral', icon: Icon, className }: BadgeProps) {
   return (
-    <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-medium ${variantClasses[variant]}`}>
+    <span
+      className={cn(
+        'inline-flex items-center gap-1 whitespace-nowrap rounded-full px-2 py-0.5 text-micro',
+        TONE_BADGE[variant],
+        className,
+      )}
+    >
+      {Icon && <Icon aria-hidden className="size-3.5 shrink-0" strokeWidth={2} />}
       {text}
     </span>
   );

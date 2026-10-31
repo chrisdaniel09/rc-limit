@@ -1,228 +1,152 @@
-import { useState } from 'react';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost, apiPut } from '../../api/client';
-import Badge from '../../components/Badge';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import DataTable, { type Column } from '../../components/DataTable';
+import { useEffect, useState } from 'react';
+import { Lock, Plus } from 'lucide-react';
+import { apiPost, apiPut } from '@/api/client';
+import { useClientFilter } from '@/hooks/useClientFilter';
+import { useFetch } from '@/hooks/useFetch';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar } from '@/components/FilterBar';
+import StatusBadge from '@/components/StatusBadge';
+import Badge from '@/components/Badge';
+import { CodeInput } from '@/components/inputs';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/choice';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Field, FormSection } from '@/components/ui/field';
+import { Empty } from '@/components/ui/feedback';
+import { Input, Textarea } from '@/components/ui/input';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
+import { RightsMatrix, type Right, type Role } from './adminShared';
 
-interface Right {
-  rightId: string;
-  code: string;
-  module: string;
-  name: string;
-  description?: string;
-  isActive: boolean;
-}
-
-interface Role {
-  roleId: string;
-  code: string;
-  name: string;
-  description?: string;
-  isSystem: boolean;
-  isActive: boolean;
-  rights: Right[];
-}
-
+// §10.12 Roles: list + side sheet editor with the rights matrix.
 export default function RolesPage() {
-  const { data: roles, loading, refetch } = useFetch<Role[]>('/api/v1/roles', []);
-  const { data: rights } = useFetch<Right[]>('/api/v1/rights', []);
-  const [showModal, setShowModal] = useState(false);
-  const [editing, setEditing] = useState<Role | null>(null);
+  const { data: roles, loading, error, refetch } = useFetch<Role[]>('/api/v1/roles');
+  const { data: rights } = useFetch<Right[]>('/api/v1/rights');
+  const list = useClientFilter(roles, (r) => [r.name, r.code, r.description]);
+  const [editor, setEditor] = useState<{ open: boolean; role: Role | null }>({ open: false, role: null });
   const [form, setForm] = useState({ code: '', name: '', description: '', isActive: true });
-  const [selectedRights, setSelectedRights] = useState<string[]>([]);
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<string[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const [serverError, setServerError] = useState<string | null>(null);
 
-  const openCreate = () => {
-    setEditing(null);
-    setForm({ code: '', name: '', description: '', isActive: true });
-    setSelectedRights([]);
-    setError(null);
-    setShowModal(true);
+  useEffect(() => {
+    if (!editor.open) return;
+    const r = editor.role;
+    setForm({ code: r?.code ?? '', name: r?.name ?? '', description: r?.description ?? '', isActive: r?.isActive ?? true });
+    setSelected(r?.rights?.map((x) => x.rightId) ?? []);
+    setDirty(false);
+    setServerError(null);
+  }, [editor]);
+
+  const locked = !!editor.role?.isSystem;
+  const patch = (p: Partial<typeof form>) => {
+    setForm((f) => ({ ...f, ...p }));
+    setDirty(true);
   };
 
-  const openEdit = (role: Role) => {
-    setEditing(role);
-    setForm({ code: role.code, name: role.name, description: role.description || '', isActive: role.isActive });
-    setSelectedRights(role.rights.map(r => r.rightId));
-    setError(null);
-    setShowModal(true);
-  };
-
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
+  const save = async () => {
+    if (locked) return;
+    if (!form.name.trim() || (!editor.role && !form.code.trim())) {
+      setServerError('Enter a code and a name.');
+      return;
+    }
+    setSaving(true);
+    setServerError(null);
     try {
       let roleId: string;
-      if (editing) {
-        if (editing.isSystem) {
-          setError('Cannot modify system roles');
-          setSubmitting(false);
-          return;
-        }
-        await apiPut(`/api/v1/roles/${editing.roleId}`, {
-          name: form.name,
-          description: form.description,
-          isActive: form.isActive
-        });
-        roleId = editing.roleId;
+      if (editor.role) {
+        await apiPut(`/api/v1/roles/${editor.role.roleId}`, { name: form.name.trim(), description: form.description, isActive: form.isActive });
+        roleId = editor.role.roleId;
       } else {
-        const created = await apiPost<{ roleId: string }>('/api/v1/roles', {
-          code: form.code,
-          name: form.name,
-          description: form.description
-        });
-        roleId = created.roleId;
+        const created = await apiPost<{ data?: { roleId: string }; roleId?: string }>('/api/v1/roles', { code: form.code, name: form.name.trim(), description: form.description });
+        roleId = created?.data?.roleId ?? created.roleId!;
       }
-
-      // Set rights
-      await apiPut(`/api/v1/roles/${roleId}/rights`, {
-        rightIds: selectedRights
-      });
-
-      setShowModal(false);
-      refetch();
-    } catch (err: any) {
-      setError(err.message || 'Operation failed');
+      await apiPut(`/api/v1/roles/${roleId}/rights`, { rightIds: selected });
+      notifySuccess(editor.role ? 'Role saved' : 'Role added');
+      setEditor({ open: false, role: null });
+      void refetch();
+    } catch (err) {
+      setServerError(errorMessage(err, "The role wasn't saved."));
     } finally {
-      setSubmitting(false);
+      setSaving(false);
     }
   };
 
-  const rightsByModule = rights ? rights.reduce((acc, right) => {
-    if (!acc[right.module]) acc[right.module] = [];
-    acc[right.module].push(right);
-    return acc;
-  }, {} as Record<string, Right[]>) : {};
-
-  const columns: Column<Role>[] = [
-    { key: 'code', header: 'Code' },
-    { key: 'name', header: 'Name' },
-    { key: 'isSystem', header: 'System', render: (item: Role) => item.isSystem ? <Badge text="System" variant="info" /> : '-' },
-    { key: 'isActive', header: 'Status', render: (item: Role) => <Badge text={item.isActive ? 'Active' : 'Inactive'} variant={item.isActive ? 'success' : 'neutral'} /> }
+  const columns: ColumnDef<Role>[] = [
+    {
+      id: 'name', header: 'Name', mobile: 'title',
+      cell: (r) => (
+        <span>
+          <span className="block">{r.name}</span>
+          {r.description && <span className="block max-w-80 truncate text-caption font-normal text-muted-foreground">{r.description}</span>}
+        </span>
+      ),
+    },
+    { id: 'code', header: 'Code', kind: 'id', mobile: 'subtitle', cell: (r) => r.code },
+    { id: 'rights', header: 'Rights', kind: 'number', mobile: 'meta', cell: (r) => r.rights?.length ?? 0 },
+    { id: 'system', header: 'System', mobile: 'badge', cell: (r) => (r.isSystem ? <Badge text="System" variant="info" icon={Lock} /> : <Empty />) },
+    { id: 'status', header: 'Status', kind: 'status', mobile: 'badge', cell: (r) => <StatusBadge status={r.isActive ? 'ACTIVE' : 'INACTIVE'} inTable /> },
   ];
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h1 className="text-2xl font-bold text-gray-900">Roles</h1>
-            <p className="text-sm text-gray-600">Manage user roles and permissions</p>
-          </div>
-          <button
-            onClick={openCreate}
-            className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors"
-          >
-            Add Role
-          </button>
+    <>
+      <PageHeader
+        title="Roles"
+        count={roles?.length}
+        description="Bundles of rights you assign to users."
+        actions={<Button icon={Plus} data-new-record onClick={() => setEditor({ open: true, role: null })}>Add role</Button>}
+      />
+      <FilterBar searchValue={list.search} onSearchChange={list.setSearch} searchPlaceholder="Search roles…" />
+      <DataTable
+        label="Roles"
+        columns={columns}
+        rows={list.filtered}
+        getRowId={(r) => r.roleId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        onRowClick={(r) => setEditor({ open: true, role: r })}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clear}
+        empty={{ title: 'No roles yet', action: <Button icon={Plus} onClick={() => setEditor({ open: true, role: null })}>Add role</Button> }}
+      />
+      <ResponsiveDialog
+        open={editor.open}
+        onOpenChange={(o) => setEditor((e) => ({ ...e, open: o }))}
+        variant="sheet"
+        size="lg"
+        title={editor.role ? editor.role.name : 'Add role'}
+        dirty={dirty && !locked}
+        error={serverError}
+        onSubmit={() => void save()}
+        footer={
+          <>
+            <Button variant="outline" onClick={() => setEditor((e) => ({ ...e, open: false }))}>{locked ? 'Close' : 'Cancel'}</Button>
+            {!locked && <Button type="submit" loading={saving} loadingText="Saving…">{editor.role ? 'Save role' : 'Add role'}</Button>}
+          </>
+        }
+      >
+        <div className="space-y-6">
+          {locked && <Alert tone="info" icon={Lock} title="System role">System roles can't be changed. Create a new role to customise rights.</Alert>}
+          <FormSection title="Details">
+            <Field label="Code" required hint={editor.role ? "A code can't change once created." : undefined}>
+              <CodeInput value={form.code} onValueChange={(v) => patch({ code: v.replace(/[^A-Z0-9_]/g, '_') })} readOnly={!!editor.role} placeholder="FINANCE_MANAGER" />
+            </Field>
+            <Field label="Name" required>
+              <Input value={form.name} onChange={(e) => patch({ name: e.target.value })} readOnly={locked} placeholder="Finance manager" />
+            </Field>
+            <Field label="Description" optional>
+              <Textarea value={form.description} onChange={(e) => patch({ description: e.target.value })} readOnly={locked} rows={2} maxLength={500} />
+            </Field>
+            {editor.role && !locked && <Switch label="Active" checked={form.isActive} onCheckedChange={(v) => patch({ isActive: v })} />}
+          </FormSection>
+          <FormSection title="Rights">
+            <RightsMatrix rights={rights ?? []} selected={selected} onChange={(ids) => { setSelected(ids); setDirty(true); }} disabled={locked} />
+          </FormSection>
         </div>
-
-        {loading ? (
-          <div className="text-center py-8 text-gray-500">Loading roles...</div>
-        ) : (
-          <DataTable
-            columns={columns}
-            data={roles || []}
-            onRowClick={openEdit}
-          />
-        )}
-      </div>
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title={editing ? `Edit Role: ${editing.name}` : 'Add Role'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          {error && <div className="bg-red-50 border border-red-200 rounded p-3 text-sm text-red-700">{error}</div>}
-
-          <FormField
-            label="Code"
-            value={form.code}
-            onChange={(v) => setForm({ ...form, code: v })}
-            required
-            disabled={!!editing}
-            placeholder="e.g. FINANCE_MANAGER"
-          />
-
-          <FormField
-            label="Name"
-            value={form.name}
-            onChange={(v) => setForm({ ...form, name: v })}
-            required
-            placeholder="e.g. Finance Manager"
-          />
-
-          <FormField
-            label="Description"
-            value={form.description}
-            onChange={(v) => setForm({ ...form, description: v })}
-            placeholder="Optional description"
-          />
-
-          {editing && !editing.isSystem && (
-            <label className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={form.isActive}
-                onChange={(e) => setForm({ ...form, isActive: e.target.checked })}
-                className="rounded border-gray-300"
-              />
-              <span className="text-sm text-gray-700">Active</span>
-            </label>
-          )}
-
-          <div className="border-t pt-4">
-            <h3 className="font-semibold text-gray-900 mb-3">Assign Rights</h3>
-            <div className="space-y-4">
-              {Object.entries(rightsByModule).map(([module, moduleRights]) => (
-                <div key={module} className="border rounded p-3">
-                  <h4 className="font-medium text-gray-700 mb-2">{module}</h4>
-                  <div className="space-y-2">
-                    {moduleRights?.map(right => (
-                      <label key={right.rightId} className="flex items-start gap-2">
-                        <input
-                          type="checkbox"
-                          checked={selectedRights.includes(right.rightId)}
-                          onChange={(e) => {
-                            if (e.target.checked) {
-                              setSelectedRights([...selectedRights, right.rightId]);
-                            } else {
-                              setSelectedRights(selectedRights.filter(id => id !== right.rightId));
-                            }
-                          }}
-                          className="rounded border-gray-300 mt-1"
-                        />
-                        <div>
-                          <div className="text-sm font-medium text-gray-900">{right.name}</div>
-                          {right.description && <div className="text-xs text-gray-500">{right.description}</div>}
-                        </div>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="flex justify-end gap-3 mt-6 pt-4 border-t">
-            <button
-              type="button"
-              onClick={() => setShowModal(false)}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={submitting}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50"
-            >
-              {submitting ? 'Saving...' : 'Save'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+      </ResponsiveDialog>
+    </>
   );
 }

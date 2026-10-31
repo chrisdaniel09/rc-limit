@@ -1,162 +1,232 @@
-import { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../../hooks/useFetch';
-import { apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import PhoneInput from '../../components/PhoneInput';
-import { toPhoneNumber } from '../../utils/phone';
-import { useListState } from '../../hooks/useListState';
-import Pagination from '../../components/Pagination';
+import { useEffect, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Plus } from 'lucide-react';
+import { z } from 'zod';
+import { apiPost } from '@/api/client';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import { useThresholds } from '@/theme/ThemeProvider';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar, SavedViews, type FilterDef } from '@/components/FilterBar';
+import { FormField, focusFirstError, useZodForm } from '@/components/form';
+import { CurrencyInput, PhoneInput } from '@/components/inputs';
+import { UtilizationMeter } from '@/components/metrics';
+import Pagination from '@/components/Pagination';
+import StatusBadge from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Segmented } from '@/components/ui/choice';
+import { ResponsiveDialog } from '@/components/ui/dialog';
+import { Empty } from '@/components/ui/feedback';
+import { Input } from '@/components/ui/input';
+import { errorMessage, notifySuccess } from '@/components/ui/toast';
+import { PageHeader } from '@/layouts/templates';
+import { CUSTOMER_TYPES } from './customerShared';
+import { humanize } from '@/lib/format';
+import { isValidIndianMobile, INDIAN_MOBILE_MESSAGE, toPhoneNumber } from '@/utils/phone';
 
 interface Customer {
   customerId: string;
   legalName: string;
-  tradeName: string;
+  tradeName: string | null;
   customerType: string;
   cibilScore: number | null;
-  cibilTier: string;
+  cibilTier: string | null;
   riskStatus: string;
   assignedCeiling: number;
   currentUtilization: number;
   stopSupplyFlag: boolean;
+  pendingRcCount?: number | null;
+  maxPendingRcAllowed?: number | null;
 }
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
 
-export default function CustomersPage() {
-  const list = useListState({
-    storageKey: 'customers.pageSize',
-    defaultSortBy: 'legalName',
-    defaultSortDir: 'asc',
-    initialFilters: { customerType: '' },
-  });
-  const { data, meta, loading, refetch } = useFetch<Customer[]>(`/api/v1/customers?${list.query}`);
-  const navigate = useNavigate();
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState({ legalName: '', tradeName: '', customerType: 'DEALER', phoneNumber: '', assignedCeiling: '' });
-  const [submitting, setSubmitting] = useState(false);
+const INITIAL_FILTERS = { customerType: '', riskStatus: '', cibilTier: '', stopSupply: '', utilizationBand: '' };
 
-  const columns: Column<Customer>[] = [
-    { key: 'legalName', header: 'Legal Name', sortKey: 'legalName' },
-    { key: 'tradeName', header: 'Trade Name', sortKey: 'tradeName' },
-    { key: 'customerType', header: 'Type', sortKey: 'customerType', render: (c) => <Badge text={c.customerType} variant="neutral" /> },
-    { key: 'cibilScore', header: 'CIBIL', sortKey: 'cibilScore', render: (c) => c.cibilScore ?? '-' },
-    { key: 'cibilTier', header: 'Tier', render: (c) => c.cibilTier ? <Badge text={c.cibilTier} variant={statusVariant(c.cibilTier)} /> : '-' },
-    { key: 'riskStatus', header: 'Risk', sortKey: 'riskStatus', render: (c) => <Badge text={c.riskStatus} variant={statusVariant(c.riskStatus)} /> },
-    {
-      key: 'utilization',
-      header: 'Sub-Limit',
-      render: (c) => {
-        const pct = c.assignedCeiling > 0 ? (c.currentUtilization / c.assignedCeiling) * 100 : 0;
-        return (
-          <div className="w-32">
-            <div className="flex justify-between text-xs text-gray-500 mb-1">
-              <span>{formatCurrency(c.currentUtilization)}</span>
-              <span>{Math.round(pct)}%</span>
-            </div>
-            <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-              <div
-                className={`h-full rounded-full ${pct > 80 ? 'bg-red-500' : pct > 50 ? 'bg-yellow-500' : 'bg-green-500'}`}
-                style={{ width: `${Math.min(pct, 100)}%` }}
-              />
-            </div>
-          </div>
-        );
-      },
-    },
-    {
-      key: 'stopSupplyFlag',
-      header: 'Stop Supply',
-      render: (c) => c.stopSupplyFlag ? <Badge text="LOCKED" variant="danger" /> : <Badge text="OK" variant="success" />,
-    },
-  ];
+const schema = z.object({
+  legalName: z.string().trim().min(2, 'Enter the legal name').max(200),
+  tradeName: z.string().max(200),
+  customerType: z.enum(['DEALER', 'INDIVIDUAL']),
+  phoneNumber: z.string().refine((v) => v === '' || isValidIndianMobile(v), INDIAN_MOBILE_MESSAGE),
+  assignedCeiling: z.number({ error: 'Enter the sub-limit' }).positive('Enter an amount greater than zero'),
+});
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    try {
-      await apiPost('/api/v1/customers', {
-        legalName: form.legalName,
-        tradeName: form.tradeName,
-        customerType: form.customerType,
-        phoneNumber: toPhoneNumber(form.phoneNumber),
-        assignedCeiling: parseFloat(form.assignedCeiling),
-      });
-      setShowModal(false);
-      setForm({ legalName: '', tradeName: '', customerType: 'DEALER', phoneNumber: '', assignedCeiling: '' });
-      // Keep the current page and filters; a changed page refetches on its own.
-      if (list.page === 1) refetch();
-      else list.setPage(1);
-    } catch {
-      // handle error
-    } finally {
-      setSubmitting(false);
+function AddCustomerDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (id: string | null) => void }) {
+  const [serverError, setServerError] = useState<string | null>(null);
+  const form = useZodForm(schema, { legalName: '', tradeName: '', customerType: 'DEALER', phoneNumber: '', assignedCeiling: null as unknown as number });
+  const { control, handleSubmit, reset, formState } = form;
+  useEffect(() => {
+    if (open) {
+      reset();
+      setServerError(null);
     }
-  };
+  }, [open, reset]);
+
+  const submit = handleSubmit(async (v) => {
+    setServerError(null);
+    try {
+      const res = await apiPost<{ data?: { customerId?: string }; customerId?: string }>('/api/v1/customers', {
+        legalName: v.legalName,
+        tradeName: v.tradeName || null,
+        customerType: v.customerType,
+        phoneNumber: toPhoneNumber(v.phoneNumber),
+        assignedCeiling: v.assignedCeiling,
+      });
+      notifySuccess('Customer added');
+      onOpenChange(false);
+      onCreated(res?.data?.customerId ?? res?.customerId ?? null);
+    } catch (err) {
+      setServerError(errorMessage(err, "The customer wasn't added."));
+    }
+  }, focusFirstError);
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">All Customers</h2>
-        <button onClick={() => setShowModal(true)} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Add Customer
-        </button>
+    <ResponsiveDialog
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add customer"
+      dirty={formState.isDirty}
+      onSubmit={() => void submit()}
+      error={serverError}
+      footer={
+        <>
+          <Button variant="outline" onClick={() => onOpenChange(false)}>Cancel</Button>
+          <Button type="submit" loading={formState.isSubmitting} loadingText="Adding…">Add customer</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
+        <FormField control={control} name="legalName" label="Legal name" required render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} autoFocus />} />
+        <FormField control={control} name="tradeName" label="Trade name" optional render={(f) => <Input value={f.value} onChange={(e) => f.onChange(e.target.value)} onBlur={f.onBlur} />} />
+        <FormField
+          control={control}
+          name="customerType"
+          label="Type"
+          required
+          render={(f) => <Segmented aria-label="Customer type" value={f.value} onValueChange={(v) => f.onChange(v as 'DEALER')} options={CUSTOMER_TYPES} />}
+        />
+        <FormField control={control} name="phoneNumber" label="Phone" optional render={(f) => <PhoneInput value={f.value} onValueChange={f.onChange} onBlur={f.onBlur} />} />
+        <FormField
+          control={control}
+          name="assignedCeiling"
+          label="Sub-limit ceiling"
+          required
+          render={(f) => <CurrencyInput value={f.value ?? null} onValueChange={(v) => f.onChange(v as number)} onBlur={f.onBlur} showWords />}
+        />
       </div>
-
-      <div className="mb-4">
-        <select
-          value={list.filters.customerType}
-          onChange={(e) => list.updateFilter('customerType', e.target.value)}
-          className="rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none"
-          aria-label="Filter by customer type"
-        >
-          <option value="">All types</option>
-          <option value="DEALER">Dealer</option>
-          <option value="INDIVIDUAL">Individual</option>
-        </select>
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data ?? []}
-        loading={loading}
-        onRowClick={(c) => navigate(`/customers/${c.customerId}`)}
-        searchPlaceholder="Search name or phone..."
-        server={{
-          searchValue: list.searchInput,
-          onSearchChange: list.setSearchInput,
-          sortBy: list.sortBy,
-          sortDir: list.sortDir,
-          onSort: list.updateSort,
-          footer: (
-            <Pagination
-              meta={meta}
-              pageSize={list.pageSize}
-              onPageChange={list.setPage}
-              onPageSizeChange={list.setPageSize}
-            />
-          ),
-        }}
-      />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Add Customer">
-        <form onSubmit={handleSubmit}>
-          <FormField label="Legal Name" value={form.legalName} onChange={(v) => setForm({ ...form, legalName: v })} required />
-          <FormField label="Trade Name" value={form.tradeName} onChange={(v) => setForm({ ...form, tradeName: v })} />
-          <FormField label="Type" value={form.customerType} onChange={(v) => setForm({ ...form, customerType: v })} options={[{ value: 'DEALER', label: 'Dealer' }, { value: 'INDIVIDUAL', label: 'Individual' }]} />
-          <PhoneInput label="Phone" value={form.phoneNumber} onChange={(v) => setForm({ ...form, phoneNumber: v })} />
-          <FormField label="Assigned Sub-Limit (₹)" type="number" value={form.assignedCeiling} onChange={(v) => setForm({ ...form, assignedCeiling: v })} required />
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Saving...' : 'Save'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+    </ResponsiveDialog>
   );
 }
+
+// §10.5 Customers list.
+export default function CustomersPage() {
+  const list = useListState({ storageKey: 'customers.pageSize', defaultSortBy: 'legalName', defaultSortDir: 'asc', initialFilters: INITIAL_FILTERS });
+  const thresholds = useThresholds();
+  // Utilization bands use the tenant's thresholds, which live in the System module, so the page passes them.
+  const { data, meta, loading, error, refetch } = useFetch<Customer[]>(
+    `/api/v1/customers?${list.query}&warnPct=${thresholds.warnPct}&dangerPct=${thresholds.dangerPct}`, [], { staleAfter: LIST_STALE_MS },
+  );
+  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [addOpen, setAddOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchParams.get('new') === '1') {
+      setAddOpen(true);
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('new'); return n; }, { replace: true });
+    }
+  }, [searchParams, setSearchParams]);
+
+  const filters: FilterDef[] = [
+    { key: 'customerType', label: 'Type', type: 'single', options: CUSTOMER_TYPES },
+    { key: 'riskStatus', label: 'Risk', type: 'multi', options: ['ACTIVE', 'FLAGGED', 'SUSPENDED', 'DEFAULTED'].map((v) => ({ value: v, label: humanize(v) })) },
+    { key: 'cibilTier', label: 'CIBIL tier', type: 'multi', options: [{ value: 'GREEN', label: 'Green' }, { value: 'AMBER', label: 'Amber' }, { value: 'RED', label: 'Red' }] },
+    { key: 'stopSupply', label: 'Stop supply', type: 'boolean', trueLabel: 'On stop supply' },
+    { key: 'utilizationBand', label: 'Utilization', type: 'single', options: [{ value: 'LOW', label: 'Below warning' }, { value: 'WARN', label: 'Approaching ceiling' }, { value: 'HIGH', label: 'At or over ceiling' }] },
+  ];
+
+  const columns: ColumnDef<Customer>[] = [
+    {
+      id: 'legalName', header: 'Legal name', sortKey: 'legalName', mobile: 'title',
+      cell: (c) => (
+        <span className="block max-w-64">
+          <span className="block truncate">{c.legalName}</span>
+          {c.tradeName && <span className="block truncate text-caption font-normal text-muted-foreground">{c.tradeName}</span>}
+        </span>
+      ),
+    },
+    { id: 'type', header: 'Type', sortKey: 'customerType', mobile: 'subtitle', priority: 2, cell: (c) => humanize(c.customerType) },
+    {
+      id: 'cibil', header: 'CIBIL', kind: 'number', mobile: 'meta',
+      cell: (c) => (c.cibilScore == null && !c.cibilTier ? <Empty /> : (
+        <span className="inline-flex items-center gap-2">
+          {c.cibilScore != null && <span className="num">{c.cibilScore}</span>}
+          {c.cibilTier && <StatusBadge status={c.cibilTier} inTable />}
+        </span>
+      )),
+    },
+    { id: 'risk', header: 'Risk', sortKey: 'riskStatus', kind: 'status', mobile: 'badge', cell: (c) => <StatusBadge status={c.riskStatus} inTable /> },
+    { id: 'subLimit', header: 'Sub-limit', mobile: 'meta', className: 'w-48', cell: (c) => <UtilizationMeter compact used={c.currentUtilization} ceiling={c.assignedCeiling} /> },
+    {
+      id: 'pendingRc', header: 'Pending RCs', kind: 'number', priority: 3, hideable: true, mobile: 'hidden',
+      cell: (c) => (c.pendingRcCount == null ? <Empty /> : (
+        <span className={c.maxPendingRcAllowed != null && c.pendingRcCount >= c.maxPendingRcAllowed ? 'text-warning' : undefined}>
+          {c.pendingRcCount}{c.maxPendingRcAllowed != null && ` / ${c.maxPendingRcAllowed}`}
+        </span>
+      )),
+    },
+    // Only shown when true: the old green "OK" on every row was noise (§10.5).
+    { id: 'stopSupply', header: 'Stop supply', kind: 'status', mobile: 'badge', cell: (c) => (c.stopSupplyFlag ? <StatusBadge status="STOP_SUPPLY" inTable /> : null) },
+  ];
+
+  return (
+    <>
+      <PageHeader title="Customers" count={meta?.totalCount} actions={<Button icon={Plus} data-new-record onClick={() => setAddOpen(true)}>Add customer</Button>} />
+      <FilterBar
+        searchValue={list.searchInput}
+        onSearchChange={list.setSearchInput}
+        searchPlaceholder="Search name or phone…"
+        filters={filters}
+        values={list.filters}
+        onChange={(c) => list.setFilters(c as Partial<typeof INITIAL_FILTERS>)}
+        onClearAll={list.clearFilters}
+        resultCount={meta?.totalCount}
+        resultLabel="customers"
+        savedViews={
+          <SavedViews
+            storageKey="customers"
+            defaults={[{ id: 'stop-supply', name: 'On stop supply', filters: { stopSupply: 'true' } }, { id: 'near-ceiling', name: 'Near ceiling', filters: { utilizationBand: 'HIGH' } }]}
+            current={{ q: list.search, sort: list.sortBy, dir: list.sortDir, filters: list.filters }}
+            onApply={(v) => list.applyView({ q: v.q, sort: v.sort, dir: v.dir, filters: v.filters as Partial<typeof INITIAL_FILTERS> })}
+          />
+        }
+      />
+      <DataTable
+        label="Customers"
+        columns={columns}
+        rows={data}
+        getRowId={(c) => c.customerId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        rowHref={(c) => `/customers/${c.customerId}`}
+        rowAttention={(c) => c.stopSupplyFlag}
+        sort={{ sortBy: list.sortBy, sortDir: list.sortDir, onSort: list.updateSort, onSortChange: list.setSort }}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clearFilters}
+        columnsKey="customers"
+        accumulate={{ page: list.page, viewKey: list.viewKey }}
+        empty={{ title: 'No customers yet', description: 'Add a dealer or individual to give them a sub-limit.', action: <Button icon={Plus} onClick={() => setAddOpen(true)}>Add customer</Button> }}
+        footer={<Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />}
+      />
+      <AddCustomerDialog
+        open={addOpen}
+        onOpenChange={setAddOpen}
+        onCreated={(id) => {
+          if (id) navigate(`/customers/${id}`);
+          else void refetch();
+        }}
+      />
+    </>
+  );
+}
+

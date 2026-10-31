@@ -1,208 +1,219 @@
-import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../../hooks/useFetch';
-import { apiGet, apiPost } from '../../api/client';
-import DataTable, { type Column } from '../../components/DataTable';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
-import Modal from '../../components/Modal';
-import FormField from '../../components/FormField';
-import Pagination from '../../components/Pagination';
-import { useListState } from '../../hooks/useListState';
+import { useEffect, useMemo, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Columns2, Download, Plus } from 'lucide-react';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import { useTerms } from '@/theme/ThemeProvider';
+import DataTable, { type ColumnDef } from '@/components/DataTable';
+import { FilterBar, SavedViews, type FilterDef } from '@/components/FilterBar';
+import Pagination from '@/components/Pagination';
+import StatusBadge from '@/components/StatusBadge';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/choice';
+import { Empty } from '@/components/ui/feedback';
+import { Tooltip } from '@/components/ui/tooltip';
+import { PageHeader } from '@/layouts/templates';
+import { SplitView, useSplitPreference } from '@/layouts/SplitView';
+import { formatDate, formatDays, formatINR, formatRegNo } from '@/lib/format';
+import { getStatus, TONE_TEXT } from '@/lib/status';
+import { searchCustomers, searchPartners } from '@/lib/lookups';
+import { downloadCsv } from '@/lib/download';
+import { cn } from '@/lib/cn';
+import CreateLoanDialog from './CreateLoanDialog';
+import { LoanDetailView } from './LoanDetailPage';
+import { LOAN_STATUS_OPTIONS, PRODUCT_TYPES, RC_AGING_OPTIONS, type LoanListItem } from './loanTypes';
 
-interface Loan {
-  loanId: string;
-  applicationNumber: string;
-  customerName: string;
-  vehicleRegNo: string;
-  lenderName: string;
-  requestedAmount: number;
-  sanctionedAmount: number | null;
-  netDisbursedAmount: number;
-  loanStatus: string;
-  disbursalDate: string | null;
-}
-
-interface VehicleOption { vehicleId: string; registrationNumber: string }
-
-interface SelectItem { value: string; label: string }
-
-const PRODUCT_TYPES = [
-  { value: 'USED_CV', label: 'Used CV' },
-  { value: 'NEW_CV', label: 'New CV' },
-  { value: 'REFINANCE', label: 'Refinance' },
-];
-
-const emptyForm = {
-  customerId: '', vehicleId: '', poolId: '', partnerId: '',
-  productType: 'USED_CV', lenderAgreementNumber: '', requestedAmount: '',
-  bankPayoutPctAmt: '0', bonusPayoutAmt: '0', sharedPayoutAmt: '0', remarks: '',
+const INITIAL_FILTERS = {
+  loanStatus: '', lenderId: '', poolId: '', productType: '', partnerId: '', customerId: '',
+  disbursedFrom: '', disbursedTo: '', rcAging: '', hasOpenBalance: '',
 };
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(amount);
+interface Lender { lenderId: string; name: string }
+interface BankPool { poolId: string; lenderName: string; facilityAccountNumber: string }
 
-const formatDate = (dateStr: string | null) => {
-  if (!dateStr) return '-';
-  const d = new Date(dateStr);
-  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-};
-
+// §10.7 Loans list.
 export default function LoansPage() {
-  const list = useListState({
-    storageKey: 'loans.pageSize',
-    defaultSortBy: 'createdAt',
-    defaultSortDir: 'desc',
-    initialFilters: {},
-  });
-  const { data, meta, loading, refetch } = useFetch<Loan[]>(`/api/v1/loans?${list.query}`);
-  const { data: customers } = useFetch<{ customerId: string; legalName: string }[]>('/api/v1/customers/lookup');
-  const { data: bankPools } = useFetch<{ poolId: string; lenderId: string; lenderName: string; facilityAccountNumber: string; sanctionedLimit: number; utilizedAmount: number }[]>('/api/v1/bank-pools');
-  const { data: partners } = useFetch<{ partnerId: string; legalName: string }[]>('/api/v1/partners/lookup');
+  const list = useListState({ storageKey: 'loans.pageSize', defaultSortBy: 'createdAt', defaultSortDir: 'desc', initialFilters: INITIAL_FILTERS });
+  const { data, meta, loading, error, refetch } = useFetch<LoanListItem[]>(`/api/v1/loans?${list.query}`, [], { staleAfter: LIST_STALE_MS });
+  const { data: lenders } = useFetch<Lender[]>('/api/v1/lenders');
+  const { data: pools } = useFetch<BankPool[]>('/api/v1/bank-pools');
+  const terms = useTerms();
   const navigate = useNavigate();
-  const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState(emptyForm);
-  const [vehicles, setVehicles] = useState<VehicleOption[]>([]);
-  const [loadingVehicles, setLoadingVehicles] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [createOpen, setCreateOpen] = useState(false);
+  const split = useSplitPreference('loans', false);
+  const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
+  const [partnerNames, setPartnerNames] = useState<Record<string, string>>({});
 
-  // Only the selected customer's vehicles can be chosen (spec: loan creation rules).
+  // ?new=1 (command palette, shortcuts) opens the create dialog.
   useEffect(() => {
-    if (!form.customerId) {
-      setVehicles([]);
-      return;
+    if (searchParams.get('new') === '1') {
+      setCreateOpen(true);
+      setSearchParams((p) => { const n = new URLSearchParams(p); n.delete('new'); return n; }, { replace: true });
     }
-    let cancelled = false;
-    setLoadingVehicles(true);
-    apiGet<{ data: VehicleOption[] }>(`/api/v1/customers/${form.customerId}/vehicles`)
-      .then((res) => { if (!cancelled) setVehicles(res.data ?? []); })
-      .catch(() => { if (!cancelled) setVehicles([]); })
-      .finally(() => { if (!cancelled) setLoadingVehicles(false); });
-    return () => { cancelled = true; };
-  }, [form.customerId]);
+  }, [searchParams, setSearchParams]);
 
-  const columns: Column<Loan>[] = [
-    { key: 'applicationNumber', header: 'Application #', sortKey: 'applicationNumber' },
-    { key: 'customerName', header: 'Customer', sortKey: 'customerName' },
-    { key: 'vehicleRegNo', header: 'Vehicle Reg' },
-    { key: 'lenderName', header: 'Lender' },
-    { key: 'requestedAmount', header: 'Requested', sortKey: 'requestedAmount', render: (l) => formatCurrency(l.requestedAmount) },
-    { key: 'sanctionedAmount', header: 'Sanctioned', sortKey: 'sanctionedAmount', render: (l) => (l.sanctionedAmount == null ? '-' : formatCurrency(l.sanctionedAmount)) },
-    { key: 'netDisbursedAmount', header: 'AF Balance', sortKey: 'netDisbursedAmount', render: (l) => formatCurrency(l.netDisbursedAmount) },
-    { key: 'loanStatus', header: 'Status', sortKey: 'loanStatus', render: (l) => <Badge text={l.loanStatus} variant={statusVariant(l.loanStatus)} /> },
-    { key: 'disbursalDate', header: 'Disbursed', sortKey: 'disbursalDate', render: (l) => formatDate(l.disbursalDate) },
+  const filters: FilterDef[] = useMemo(() => [
+    { key: 'loanStatus', label: 'Status', type: 'multi', options: LOAN_STATUS_OPTIONS },
+    { key: 'lenderId', label: 'Lender', type: 'single', options: (lenders ?? []).map((l) => ({ value: l.lenderId, label: l.name })) },
+    { key: 'poolId', label: 'Bank pool', type: 'combobox', options: (pools ?? []).map((p) => ({ value: p.poolId, label: `${p.lenderName} — ${p.facilityAccountNumber}` })) },
+    { key: 'productType', label: 'Product', type: 'single', options: PRODUCT_TYPES },
+    {
+      key: 'customerId', label: 'Customer', type: 'combobox',
+      search: async (t) => {
+        const hits = await searchCustomers(t);
+        setCustomerNames((m) => ({ ...m, ...Object.fromEntries(hits.map((h) => [h.value, h.label])) }));
+        return hits;
+      },
+      selectedLabel: (v) => customerNames[v],
+    },
+    {
+      key: 'partnerId', label: 'Partner', type: 'combobox',
+      search: async (t) => {
+        const hits = await searchPartners(t);
+        setPartnerNames((m) => ({ ...m, ...Object.fromEntries(hits.map((h) => [h.value, h.label])) }));
+        return hits;
+      },
+      selectedLabel: (v) => partnerNames[v],
+    },
+    { key: 'disbursed', label: 'Disbursed', type: 'dateRange', from: 'disbursedFrom', to: 'disbursedTo' },
+    { key: 'rcAging', label: 'RC aging', type: 'single', options: RC_AGING_OPTIONS },
+    { key: 'hasOpenBalance', label: 'Balance', type: 'boolean', trueLabel: `Open ${terms.brokerLedgerName.toLowerCase()}` },
+  ], [lenders, pools, customerNames, partnerNames, terms.brokerLedgerName]);
+
+  const totals = meta?.totals;
+  const columns: ColumnDef<LoanListItem>[] = [
+    { id: 'applicationNumber', header: 'Application #', sortKey: 'applicationNumber', kind: 'id', mobile: 'title', cell: (l) => <span className="id-mono">{l.applicationNumber}</span> },
+    { id: 'customer', header: 'Customer', sortKey: 'customerName', mobile: 'subtitle', cell: (l) => <span className="block max-w-56 truncate">{l.customerName}</span> },
+    { id: 'vehicle', header: 'Vehicle', kind: 'id', mobile: 'subtitle', priority: split.enabled ? 3 : 2, hideable: true, cell: (l) => formatRegNo(l.vehicleRegNo) },
+    { id: 'lender', header: 'Lender', priority: 2, hideable: true, mobile: 'hidden', cell: (l) => l.lenderName },
+    { id: 'requested', header: 'Requested', sortKey: 'requestedAmount', kind: 'currency', priority: 3, hideable: true, mobile: 'hidden', cell: (l) => formatINR(l.requestedAmount, { whole: true }), total: totals ? formatINR(totals.requestedAmount, { whole: true }) : undefined },
+    { id: 'sanctioned', header: 'Sanctioned', sortKey: 'sanctionedAmount', kind: 'currency', mobile: 'meta', cell: (l) => (l.sanctionedAmount == null ? <Empty /> : formatINR(l.sanctionedAmount, { whole: true })), total: totals ? formatINR(totals.sanctionedAmount, { whole: true }) : undefined },
+    { id: 'balance', header: terms.brokerLedgerName, sortKey: 'netDisbursedAmount', kind: 'currency', mobile: 'meta', priority: split.enabled ? 3 : 1, cell: (l) => formatINR(l.netDisbursedAmount, { whole: true }), total: totals ? formatINR(totals.netDisbursedAmount, { whole: true }) : undefined },
+    { id: 'status', header: 'Status', sortKey: 'loanStatus', kind: 'status', mobile: 'badge', cell: (l) => <StatusBadge status={l.loanStatus} domain="loan" inTable /> },
+    {
+      id: 'rcAging', header: 'RC aging', kind: 'number', priority: 2, hideable: true, mobile: 'meta',
+      cell: (l) => {
+        if (l.rcAgingDays == null || !l.disbursalDate) return <Empty />;
+        const tone = getStatus(l.rcAgingStatus).tone;
+        return <span className={cn('num', l.rcAgingStatus ? TONE_TEXT[tone] : 'text-foreground')}>{formatDays(l.rcAgingDays)}</span>;
+      },
+    },
+    { id: 'disbursed', header: 'Disbursed', sortKey: 'disbursalDate', kind: 'date', priority: 3, hideable: true, mobile: 'hidden', cell: (l) => formatDate(l.disbursalDate) },
   ];
 
-  const toOptions = (items: SelectItem[] | null): { value: string; label: string }[] =>
-    items?.map((i) => ({ value: i.value, label: i.label })) ?? [];
+  const visibleColumns = split.enabled ? columns.filter((c) => ['applicationNumber', 'customer', 'balance', 'status'].includes(c.id)) : columns;
 
-  const openModal = () => {
-    setForm(emptyForm);
-    setError(null);
-    setShowModal(true);
-  };
+  const exportCsv = () => downloadCsv(`/api/v1/loans/export?${list.query}`, 'loans.csv');
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSubmitting(true);
-    setError(null);
-    try {
-      await apiPost('/api/v1/loans', {
-        customerId: form.customerId,
-        vehicleId: form.vehicleId,
-        poolId: form.poolId,
-        partnerId: form.partnerId || null,
-        lenderAgreementNumber: form.lenderAgreementNumber || null,
-        productType: form.productType,
-        requestedAmount: parseFloat(form.requestedAmount),
-        bankPayoutPctAmt: parseFloat(form.bankPayoutPctAmt) || 0,
-        bonusPayoutAmt: parseFloat(form.bonusPayoutAmt) || 0,
-        sharedPayoutAmt: parseFloat(form.sharedPayoutAmt) || 0,
-        remarks: form.remarks || null,
-      });
-      setShowModal(false);
-      // Keep the current page and filters; a changed page refetches on its own.
-      if (list.page === 1) refetch();
-      else list.setPage(1);
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : 'Failed to create the loan file.');
-    } finally {
-      setSubmitting(false);
-    }
-  };
+  const table = (
+    <>
+      <FilterBar
+        searchValue={list.searchInput}
+        onSearchChange={list.setSearchInput}
+        searchPlaceholder="Search application #, customer, vehicle…"
+        filters={filters}
+        values={list.filters}
+        onChange={(c) => list.setFilters(c as Partial<typeof INITIAL_FILTERS>)}
+        onClearAll={list.clearFilters}
+        resultCount={meta?.totalCount}
+        resultLabel="loans"
+        savedViews={!split.enabled && (
+          <SavedViews
+            storageKey="loans"
+            defaults={[
+              { id: 'overdue-rc', name: 'Overdue RCs', filters: { rcAging: 'OVERDUE_LOCK' }, sort: 'disbursalDate', dir: 'asc' },
+              { id: 'in-flight', name: 'In flight', filters: { loanStatus: 'LOGGED_IN,CREDIT_REVIEW,SANCTIONED' } },
+            ]}
+            current={{ q: list.search, sort: list.sortBy, dir: list.sortDir, filters: list.filters }}
+            onApply={(v) => list.applyView({ q: v.q, sort: v.sort, dir: v.dir, filters: v.filters as Partial<typeof INITIAL_FILTERS> })}
+          />
+        )}
+        actions={!split.enabled && (
+          <Tooltip content="Export the current filter as CSV">
+            <Button variant="outline" size="sm" icon={Download} className="h-8" onClick={exportCsv}>Export</Button>
+          </Tooltip>
+        )}
+      />
+      <DataTable
+        label="Loans"
+        columns={visibleColumns}
+        rows={data}
+        getRowId={(l) => l.loanId}
+        loading={loading}
+        error={error}
+        onRetry={refetch}
+        rowHref={(l) => `/loans/${l.loanId}`}
+        onRowClick={split.enabled ? (l) => list.setSelectedId(l.loanId) : undefined}
+        onMove={split.enabled ? (l) => list.setSelectedId(l.loanId) : undefined}
+        selectedId={split.enabled ? list.selectedId : undefined}
+        rowAttention={(l) => l.rcAgingStatus === 'OVERDUE_LOCK'}
+        sort={{ sortBy: list.sortBy, sortDir: list.sortDir, onSort: list.updateSort, onSortChange: list.setSort }}
+        isFiltered={list.isFiltered}
+        onClearFilters={list.clearFilters}
+        columnsKey={split.enabled ? undefined : 'loans'}
+        accumulate={{ page: list.page, viewKey: list.viewKey }}
+        empty={{
+          title: 'No loans yet',
+          description: 'Create a loan file to start tracking it through sanction, disbursal and RC.',
+          action: <Button icon={Plus} onClick={() => setCreateOpen(true)}>Create loan</Button>,
+        }}
+        footer={<Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />}
+      />
+    </>
+  );
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-lg font-semibold text-gray-900">All Loans</h2>
-        <button onClick={openModal} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 transition-colors">
-          Create Loan
-        </button>
-      </div>
-
-      <DataTable
-        columns={columns}
-        data={data ?? []}
-        loading={loading}
-        onRowClick={(loan) => navigate(`/loans/${loan.loanId}`)}
-        searchPlaceholder="Search application #, customer, vehicle or agreement..."
-        server={{
-          searchValue: list.searchInput,
-          onSearchChange: list.setSearchInput,
-          sortBy: list.sortBy,
-          sortDir: list.sortDir,
-          onSort: list.updateSort,
-          footer: (
-            <Pagination
-              meta={meta}
-              pageSize={list.pageSize}
-              onPageChange={list.setPage}
-              onPageSizeChange={list.setPageSize}
-            />
-          ),
+    <>
+      {split.enabled ? (
+        <SplitView
+          storageKey="loans"
+          onClose={() => list.setSelectedId(null)}
+          fullPageHref={list.selectedId ? `/loans/${list.selectedId}` : null}
+          list={
+            <>
+              <PageHeader
+                title="Loans"
+                count={meta?.totalCount}
+                actions={
+                  <>
+                    <Switch label={<Columns2 aria-label="Split view" className="size-4" />} checked onCheckedChange={() => split.setPreference(false)} />
+                    <Button icon={Plus} data-new-record onClick={() => setCreateOpen(true)}>Create loan</Button>
+                  </>
+                }
+              />
+              {table}
+            </>
+          }
+          detail={list.selectedId ? <LoanDetailView loanId={list.selectedId} embedded /> : null}
+        />
+      ) : (
+        <>
+          <PageHeader
+            title="Loans"
+            count={meta?.totalCount}
+            actions={
+              <>
+                {split.available && (
+                  <Switch label="Split view" checked={false} onCheckedChange={() => split.setPreference(true)} />
+                )}
+                <Button icon={Plus} data-new-record onClick={() => setCreateOpen(true)}>Create loan</Button>
+              </>
+            }
+          />
+          {table}
+        </>
+      )}
+      <CreateLoanDialog
+        open={createOpen}
+        onOpenChange={setCreateOpen}
+        onCreated={(loanId) => {
+          if (loanId) navigate(`/loans/${loanId}`);
+          else if (list.page === 1) void refetch();
+          else list.setPage(1);
         }}
       />
-
-      <Modal isOpen={showModal} onClose={() => setShowModal(false)} title="Create Loan File">
-        <form onSubmit={handleSubmit}>
-          <FormField
-            label="Customer"
-            value={form.customerId}
-            onChange={(v) => setForm({ ...form, customerId: v, vehicleId: '' })}
-            required
-            options={toOptions(customers?.map((c) => ({ value: c.customerId, label: c.legalName })) ?? null)}
-          />
-          <FormField
-            label="Vehicle"
-            value={form.vehicleId}
-            onChange={(v) => setForm({ ...form, vehicleId: v })}
-            required
-            disabled={!form.customerId || loadingVehicles}
-            options={vehicles.map((v) => ({ value: v.vehicleId, label: v.registrationNumber }))}
-          />
-          {form.customerId && !loadingVehicles && vehicles.length === 0 && (
-            <p className="-mt-2 mb-3 text-xs text-amber-700">This customer owns no vehicles. Add a vehicle to the customer first.</p>
-          )}
-          <FormField label="Bank Pool (Lender Facility)" value={form.poolId} onChange={(v) => setForm({ ...form, poolId: v })} required options={toOptions(bankPools?.map((p) => ({ value: p.poolId, label: `${p.lenderName} — ${p.facilityAccountNumber}` })) ?? null)} />
-          <FormField label="Product Type" value={form.productType} onChange={(v) => setForm({ ...form, productType: v })} required options={PRODUCT_TYPES} />
-          <FormField label="Requested Amount (₹)" type="number" value={form.requestedAmount} onChange={(v) => setForm({ ...form, requestedAmount: v })} required />
-          <FormField label="Lender Agreement No." value={form.lenderAgreementNumber} onChange={(v) => setForm({ ...form, lenderAgreementNumber: v })} />
-          <FormField label="Partner (optional)" value={form.partnerId} onChange={(v) => setForm({ ...form, partnerId: v })} options={toOptions(partners?.map((p) => ({ value: p.partnerId, label: p.legalName })) ?? null)} />
-          <div className="grid grid-cols-3 gap-3">
-            <FormField label="Payout" type="number" value={form.bankPayoutPctAmt} onChange={(v) => setForm({ ...form, bankPayoutPctAmt: v })} />
-            <FormField label="Bonus" type="number" value={form.bonusPayoutAmt} onChange={(v) => setForm({ ...form, bonusPayoutAmt: v })} />
-            <FormField label="Shared" type="number" value={form.sharedPayoutAmt} onChange={(v) => setForm({ ...form, sharedPayoutAmt: v })} />
-          </div>
-          <FormField label="Remarks" value={form.remarks} onChange={(v) => setForm({ ...form, remarks: v })} />
-          <p className="text-xs text-gray-500">The sanctioned amount, tenure and rate are captured when the loan is sanctioned.</p>
-          {error && <p className="mt-3 text-sm text-red-600">{error}</p>}
-          <div className="flex justify-end gap-3 mt-6">
-            <button type="button" onClick={() => setShowModal(false)} className="rounded-md border border-gray-300 px-4 py-2 text-sm text-gray-700 hover:bg-gray-50">Cancel</button>
-            <button type="submit" disabled={submitting} className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-50">{submitting ? 'Creating...' : 'Create'}</button>
-          </div>
-        </form>
-      </Modal>
-    </div>
+    </>
   );
 }
+

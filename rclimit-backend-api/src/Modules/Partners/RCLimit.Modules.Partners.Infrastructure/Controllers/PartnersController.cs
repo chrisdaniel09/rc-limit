@@ -23,6 +23,7 @@ public class PartnersController : ControllerBase
     [HttpGet]
     public async Task<IActionResult> GetAll(
         [FromQuery] string? status = null,
+        [FromQuery] string? partnerType = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = PageQuery.DefaultPageSize,
         [FromQuery] string? sortBy = null,
@@ -30,7 +31,7 @@ public class PartnersController : ControllerBase
         [FromQuery] string? search = null)
     {
         var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
-        var result = await _sender.Send(new GetPartnersQuery(status, paging));
+        var result = await _sender.Send(new GetPartnersQuery(status, paging, partnerType));
         return Ok(new HateoasResponse<object>
         {
             Data = result.Items,

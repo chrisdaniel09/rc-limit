@@ -15,7 +15,11 @@ public record LoanDto(
     decimal CustomerRate,
     decimal TotalPayoutEarned,
     string LoanStatus,
-    DateOnly? DisbursalDate);
+    DateOnly? DisbursalDate,
+    Guid CustomerId,
+    int? RcAgingDays,
+    string? RcAgingStatus,
+    string? LenderAgreementNumber);
 
 public record LoanDetailDto(
     Guid LoanId,

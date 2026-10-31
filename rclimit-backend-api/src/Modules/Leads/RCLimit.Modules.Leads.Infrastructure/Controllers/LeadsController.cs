@@ -27,6 +27,11 @@ public class LeadsController : ControllerBase
     public async Task<IActionResult> GetAll(
         [FromQuery] bool assignedToMe = false,
         [FromQuery] string? leadStatus = null,
+        [FromQuery] string? productTypeCode = null,
+        [FromQuery] string? leadSource = null,
+        [FromQuery] string? assignedTo = null,
+        [FromQuery] DateOnly? createdFrom = null,
+        [FromQuery] DateOnly? createdTo = null,
         [FromQuery] int page = 1,
         [FromQuery] int pageSize = PageQuery.DefaultPageSize,
         [FromQuery] string? sortBy = null,
@@ -34,7 +39,9 @@ public class LeadsController : ControllerBase
         [FromQuery] string? search = null)
     {
         var paging = new PageQuery(page, pageSize, sortBy, sortDir, search);
-        var result = await _sender.Send(new GetLeadsQuery(assignedToMe, leadStatus, paging));
+        static string[] Set(string? csv) => (csv ?? "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+        var filter = new LeadListFilter(assignedToMe, Set(leadStatus), productTypeCode, Set(leadSource), assignedTo, createdFrom, createdTo);
+        var result = await _sender.Send(new GetLeadsQuery(filter, paging));
         return Ok(new HateoasResponse<object>
         {
             Data = result.Items,

@@ -1,10 +1,25 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useFetch } from '../../hooks/useFetch';
-import Badge from '../../components/Badge';
-import { statusVariant } from '../../components/badgeVariants';
+import { Download, Info } from 'lucide-react';
+import { LIST_STALE_MS, useFetch } from '@/hooks/useFetch';
+import { useListState } from '@/hooks/useListState';
+import { useTerms } from '@/theme/ThemeProvider';
+import { FilterBar, type FilterDef } from '@/components/FilterBar';
+import LedgerTable, { type LedgerRow } from '@/components/LedgerTable';
+import { MetricCard, MetricStrip } from '@/components/metrics';
+import Pagination from '@/components/Pagination';
+import { Alert } from '@/components/ui/alert';
+import { Button } from '@/components/ui/button';
+import { Switch } from '@/components/ui/choice';
+import { Card } from '@/components/ui/feedback';
+import { Tooltip } from '@/components/ui/tooltip';
+import { PageHeader } from '@/layouts/templates';
+import { downloadCsv } from '@/lib/download';
+import { formatINR, humanize } from '@/lib/format';
+import { searchCustomers } from '@/lib/lookups';
+import type { MasterOption } from './loanTypes';
 
-interface LedgerRow {
+interface RcLedgerRowDto {
   lineItemId: string;
   loanId: string;
   entryDate: string;
@@ -21,140 +36,119 @@ interface LedgerRow {
   runningBalanceAmt: number;
 }
 
-const formatCurrency = (amount: number) =>
-  new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 2 }).format(amount);
+interface BankPool { poolId: string; lenderName: string; facilityAccountNumber: string }
 
-const formatDate = (dateStr: string) =>
-  new Date(dateStr).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
+const INITIAL_FILTERS = { customerId: '', poolId: '', startDate: '', endDate: '', hasOpenBalance: '', hideDirectCustomerCredits: '' };
 
-const inputClass = 'mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 text-sm shadow-sm focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 focus:outline-none';
-
-// The RC Limit Ledger: ledger entries across loans (spec section 4.D).
+// §10.9 RC limit ledger: ledger entries across loans.
 export default function RcLimitLedgerPage() {
   const navigate = useNavigate();
-  const { data: customers } = useFetch<{ customerId: string; legalName: string }[]>('/api/v1/customers/lookup');
-  const { data: bankPools } = useFetch<{ poolId: string; lenderName: string; facilityAccountNumber: string }[]>('/api/v1/bank-pools');
+  const terms = useTerms();
+  const list = useListState({ storageKey: 'rcLedger.pageSize', defaultSortBy: 'entryDate', defaultSortDir: 'asc', initialFilters: INITIAL_FILTERS });
+  const { data: rows, meta, loading, error, refetch } = useFetch<RcLedgerRowDto[]>(`/api/v1/loans/rc-limit-ledger?${list.query}`, [], { staleAfter: LIST_STALE_MS });
+  const { data: pools } = useFetch<BankPool[]>('/api/v1/bank-pools');
+  const { data: counterparties } = useFetch<MasterOption[]>('/api/v1/lender-disbursed-to-options');
+  const { data: particularTypes } = useFetch<MasterOption[]>('/api/v1/particular-types');
+  const [customerNames, setCustomerNames] = useState<Record<string, string>>({});
 
-  const [customerId, setCustomerId] = useState('');
-  const [poolId, setPoolId] = useState('');
-  const [startDate, setStartDate] = useState('');
-  const [endDate, setEndDate] = useState('');
-  const [balanceStatus, setBalanceStatus] = useState('');
-  // Hides bank credits paid straight to a customer. Running balances are unaffected (decision C1).
-  const [hideDirectCustomerCredits, setHideDirectCustomerCredits] = useState(false);
+  const filters: FilterDef[] = [
+    {
+      key: 'customerId', label: 'Customer', type: 'combobox',
+      search: async (t) => {
+        const hits = await searchCustomers(t);
+        setCustomerNames((m) => ({ ...m, ...Object.fromEntries(hits.map((h) => [h.value, h.label])) }));
+        return hits;
+      },
+      selectedLabel: (v) => customerNames[v],
+    },
+    { key: 'poolId', label: 'Bank pool', type: 'combobox', options: (pools ?? []).map((p) => ({ value: p.poolId, label: `${p.lenderName} — ${p.facilityAccountNumber}` })) },
+    { key: 'date', label: 'Date', type: 'dateRange', from: 'startDate', to: 'endDate' },
+    { key: 'hasOpenBalance', label: 'Balance', type: 'single', options: [{ value: 'true', label: 'Open balance' }, { value: 'false', label: 'Settled' }] },
+  ];
 
-  const query = useMemo(() => {
-    const params = new URLSearchParams();
-    if (customerId) params.set('customerId', customerId);
-    if (poolId) params.set('poolId', poolId);
-    if (startDate) params.set('startDate', startDate);
-    if (endDate) params.set('endDate', endDate);
-    if (balanceStatus) params.set('hasOpenBalance', balanceStatus === 'OPEN_BALANCE' ? 'true' : 'false');
-    if (hideDirectCustomerCredits) params.set('hideDirectCustomerCredits', 'true');
-    return params.toString();
-  }, [customerId, poolId, startDate, endDate, balanceStatus, hideDirectCustomerCredits]);
+  const ledgerRows: LedgerRow[] = useMemo(() => (rows ?? []).map((r) => ({
+    id: r.lineItemId,
+    date: r.entryDate,
+    direction: r.entryDirection,
+    counterparty: r.counterparty,
+    particular: r.entryDirection === 'DEBIT' ? r.particularType : null,
+    credit: r.creditAmount,
+    debit: r.debitAmount,
+    balance: r.runningBalanceAmt,
+    balanceUnchanged: r.entryDirection === 'CREDIT' && r.counterparty !== terms.brokerCounterpartyCode,
+    loan: { loanId: r.loanId, applicationNumber: r.applicationNumber, customerName: r.customerName, vehicleRegNo: r.vehicleRegNo, lenderName: r.lenderName, loanStatus: r.loanStatus },
+  })), [rows, terms.brokerCounterpartyCode]);
 
-  const { data: rows, loading } = useFetch<LedgerRow[]>(`/api/v1/loans/rc-limit-ledger?${query}`);
-
-  const totals = useMemo(() => (rows ?? []).reduce(
-    (acc, r) => ({ credit: acc.credit + (r.creditAmount ?? 0), debit: acc.debit + (r.debitAmount ?? 0) }),
-    { credit: 0, debit: 0 },
-  ), [rows]);
+  // Totals over the whole filter when the API sends them; otherwise over the rows shown.
+  const shown = ledgerRows.reduce((t, r) => ({ credit: t.credit + (r.credit ?? 0), debit: t.debit + (r.debit ?? 0) }), { credit: 0, debit: 0 });
+  const credit = meta?.totals?.credit ?? shown.credit;
+  const debit = meta?.totals?.debit ?? shown.debit;
+  const entries = meta?.totalCount ?? ledgerRows.length;
+  const hide = list.filters.hideDirectCustomerCredits === 'true';
 
   return (
-    <div className="space-y-6">
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          <label className="block text-sm font-medium text-gray-700">
-            Customer
-            <select value={customerId} onChange={(e) => setCustomerId(e.target.value)} className={inputClass}>
-              <option value="">All customers</option>
-              {(customers ?? []).map((c) => <option key={c.customerId} value={c.customerId}>{c.legalName}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm font-medium text-gray-700">
-            Bank Pool
-            <select value={poolId} onChange={(e) => setPoolId(e.target.value)} className={inputClass}>
-              <option value="">All pools</option>
-              {(bankPools ?? []).map((p) => <option key={p.poolId} value={p.poolId}>{p.lenderName} — {p.facilityAccountNumber}</option>)}
-            </select>
-          </label>
-          <label className="block text-sm font-medium text-gray-700">
-            From
-            <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className={inputClass} />
-          </label>
-          <label className="block text-sm font-medium text-gray-700">
-            To
-            <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className={inputClass} />
-          </label>
-          <label className="block text-sm font-medium text-gray-700">
-            Status
-            <select value={balanceStatus} onChange={(e) => setBalanceStatus(e.target.value)} className={inputClass}>
-              <option value="">All</option>
-              <option value="OPEN_BALANCE">Open balance</option>
-              <option value="SETTLED">Settled</option>
-            </select>
-          </label>
-        </div>
-        <label className="mt-4 inline-flex items-center gap-2 text-sm text-gray-700">
-          <input
-            type="checkbox"
-            checked={hideDirectCustomerCredits}
-            onChange={(e) => setHideDirectCustomerCredits(e.target.checked)}
-            className="h-4 w-4 rounded border-gray-300"
-          />
-          Hide direct customer credits
-          <span className="text-xs text-gray-400">(bank credits paid straight to the customer; balances are unchanged)</span>
-        </label>
+    <>
+      <PageHeader title="RC limit ledger" description="Ledger entries across loans, with each loan's running balance." />
+      <FilterBar
+        searchValue={list.searchInput}
+        onSearchChange={list.setSearchInput}
+        searchPlaceholder="Search application #, customer…"
+        filters={filters}
+        values={list.filters}
+        onChange={(c) => list.setFilters(c as Partial<typeof INITIAL_FILTERS>)}
+        onClearAll={list.clearFilters}
+        resultCount={entries}
+        resultLabel="entries"
+        actions={
+          <>
+            <span className="flex items-center gap-1">
+              <Switch
+                label="Hide direct customer credits"
+                checked={hide}
+                onCheckedChange={(on) => list.updateFilter('hideDirectCustomerCredits', on ? 'true' : '')}
+              />
+              <Tooltip content="Bank credits paid straight to the customer. Hiding them changes the rows shown, not the running balances.">
+                <button type="button" aria-label="About direct customer credits" className="text-muted-foreground"><Info className="size-4" /></button>
+              </Tooltip>
+            </span>
+            <Button variant="outline" size="sm" icon={Download} className="h-8" onClick={() => void downloadCsv(`/api/v1/loans/rc-limit-ledger/export?${list.query}`, 'rc-limit-ledger.csv')}>
+              Export
+            </Button>
+          </>
+        }
+      />
+
+      <div className="mb-4">
+        <MetricStrip columns={4}>
+          <MetricCard label="Credits shown" value={formatINR(credit, { whole: true })} context={formatINR(credit)} contextTone="success" />
+          <MetricCard label="Debits shown" value={formatINR(debit, { whole: true })} context={formatINR(debit)} contextTone="danger" />
+          <MetricCard label="Net" value={formatINR(credit - debit, { whole: true })} context={formatINR(credit - debit)} />
+          <MetricCard label="Entries" value={entries.toLocaleString('en-IN')} />
+        </MetricStrip>
       </div>
 
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
-        <div className="mb-4 flex flex-wrap gap-6 text-sm">
-          <div><span className="text-gray-500">Credits shown</span><p className="font-semibold text-green-700">{formatCurrency(totals.credit)}</p></div>
-          <div><span className="text-gray-500">Debits shown</span><p className="font-semibold text-red-600">{formatCurrency(totals.debit)}</p></div>
-          <div><span className="text-gray-500">Entries</span><p className="font-semibold text-gray-900">{rows?.length ?? 0}</p></div>
+      {error ? (
+        <Alert tone="danger" title="The ledger didn't load" action={<Button variant="outline" size="sm" onClick={refetch}>Retry</Button>}>{error}</Alert>
+      ) : (
+        <Card flush>
+          <LedgerTable
+            rows={ledgerRows}
+            loading={loading}
+            crossLoan
+            closingBalance={null}
+            counterpartyLabel={(c) => counterparties?.find((o) => o.code === c)?.label ?? humanize(c)}
+            particularLabel={(c) => particularTypes?.find((o) => o.code === c)?.label ?? humanize(c)}
+            emptyTitle={list.isFiltered ? 'No entries match these filters' : 'No ledger entries yet'}
+            emptyAction={list.isFiltered ? <Button variant="outline" onClick={list.clearFilters}>Clear filters</Button> : undefined}
+            onOpenLoan={(loanId) => navigate(`/loans/${loanId}`)}
+          />
+        </Card>
+      )}
+      {meta && (
+        <div className="mt-3">
+          <Pagination meta={meta} pageSize={list.pageSize} onPageChange={list.setPage} onPageSizeChange={list.setPageSize} loading={loading} />
         </div>
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                {['Date', 'Application #', 'Customer', 'Vehicle', 'Lender', 'Entry', 'Counterparty', 'Particular'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-left text-xs font-medium text-gray-500 uppercase">{h}</th>
-                ))}
-                {['Credit', 'Debit', 'Balance'].map((h) => (
-                  <th key={h} className="px-3 py-2 text-right text-xs font-medium text-gray-500 uppercase">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-200">
-              {loading ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-gray-500">Loading...</td></tr>
-              ) : (rows ?? []).length === 0 ? (
-                <tr><td colSpan={11} className="px-3 py-6 text-center text-sm text-gray-500">No ledger entries match these filters</td></tr>
-              ) : (
-                (rows ?? []).map((r) => (
-                  <tr key={r.lineItemId} onClick={() => navigate(`/loans/${r.loanId}`)} className="cursor-pointer hover:bg-gray-50">
-                    <td className="px-3 py-2 text-sm text-gray-700 whitespace-nowrap">{formatDate(r.entryDate)}</td>
-                    <td className="px-3 py-2 text-sm text-gray-900">
-                      {r.applicationNumber}
-                      <div><Badge text={r.loanStatus} variant={statusVariant(r.loanStatus)} /></div>
-                    </td>
-                    <td className="px-3 py-2 text-sm text-gray-700">{r.customerName}</td>
-                    <td className="px-3 py-2 text-sm text-gray-700">{r.vehicleRegNo}</td>
-                    <td className="px-3 py-2 text-sm text-gray-700">{r.lenderName}</td>
-                    <td className="px-3 py-2 text-sm"><Badge text={r.entryDirection} variant={r.entryDirection === 'CREDIT' ? 'success' : 'neutral'} /></td>
-                    <td className="px-3 py-2 text-sm text-gray-700">{r.counterparty.replace(/_/g, ' ')}</td>
-                    <td className="px-3 py-2 text-sm text-gray-700">{r.particularType.replace(/_/g, ' ')}</td>
-                    <td className="px-3 py-2 text-sm text-green-700 text-right font-medium">{r.creditAmount != null ? formatCurrency(r.creditAmount) : ''}</td>
-                    <td className="px-3 py-2 text-sm text-red-600 text-right font-medium">{r.debitAmount != null ? formatCurrency(r.debitAmount) : ''}</td>
-                    <td className="px-3 py-2 text-sm text-gray-900 text-right font-medium">{formatCurrency(r.runningBalanceAmt)}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
-      </div>
-    </div>
+      )}
+    </>
   );
 }

@@ -18,7 +18,7 @@ RCLimit is a multi-tenant SPA (`rclimit-ui`) backed by an ASP.NET Core API (`rcl
 * **Strict tenant isolation.** Every request is bound to exactly one tenant, and cross-tenant use is rejected.
 * **Tenant-controlled session lifetimes** within platform-defined bounds.
 
-Out of scope: the authorization model for rights (see `docs/User_Roles_And_Rights.md`), and MFA (roadmap in section 8.4).
+Out of scope: the authorization model for rights (see `docs/User_Roles_And_Rights.md`), and MFA (roadmap in section 8.4). Non-browser clients (native apps, CLIs, server-to-server) are planned separately in `docs/api_client_access_specification.md`.
 
 ---
 
@@ -509,3 +509,4 @@ Authentication events are written as structured Serilog entries, with the event 
 6. Breached-password service for section 8.2.
 7. Interim expiry date for Profile B, and whether Safari users must be supported until cutover (they cannot silently refresh in Profile B).
 8. Headers that the Static Web Apps linked backend forwards to the API, and whether it can add the edge identity header. Tenant resolution in Profile A depends on both.
+9. Access for non-browser clients (token endpoints, tenant resolution without a host, machine credentials). See `docs/api_client_access_specification.md`, section 12.

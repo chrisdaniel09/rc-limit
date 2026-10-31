@@ -9,7 +9,7 @@ using RCLimit.Modules.Partners.Domain.Entities;
 
 namespace RCLimit.Modules.Partners.Application.Queries;
 
-public record GetPartnersQuery(string? Status, PageQuery Paging) : IRequest<PagedResult<PartnerDto>>;
+public record GetPartnersQuery(string? Status, PageQuery Paging, string? PartnerType = null) : IRequest<PagedResult<PartnerDto>>;
 
 public class GetPartnersQueryHandler : IRequestHandler<GetPartnersQuery, PagedResult<PartnerDto>>
 {
@@ -37,6 +37,7 @@ public class GetPartnersQueryHandler : IRequestHandler<GetPartnersQuery, PagedRe
         var query = _db.Partners
             .Where(p => p.TenantId == _tenant.TenantId)
             .Where(p => string.IsNullOrEmpty(request.Status) || p.Status == request.Status)
+            .Where(p => string.IsNullOrEmpty(request.PartnerType) || p.PartnerType == request.PartnerType)
             .Where(p => pattern == null
                 || EF.Functions.Like(p.LegalName.ToLower(), pattern)
                 || EF.Functions.Like((p.PhoneNumber ?? "").ToLower(), pattern));
